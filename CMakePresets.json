@@ -1,0 +1,63 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/cache",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "static",
+      "displayName": "Static Build",
+      "inherits": "base",
+      "cacheVariables": {
+        "BUILD_SHARED_LIBS": "OFF",
+        "DGH_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "shared",
+      "displayName": "Shared Build",
+      "inherits": "base",
+      "cacheVariables": {
+        "BUILD_SHARED_LIBS": "ON",
+        "DGH_BUILD_TESTS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "static",
+      "configurePreset": "static"
+    },
+    {
+      "name": "shared",
+      "configurePreset": "shared"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "static",
+      "configurePreset": "static",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "shared",
+      "configurePreset": "shared",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

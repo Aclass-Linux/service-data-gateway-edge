@@ -1,11 +1,11 @@
 add_library(dgh_protocol
-  src/Packet.cpp
-  src/FrameBuilder.cpp
+  Packet.cpp
+  FrameBuilder.cpp
 )
 
 target_include_directories(dgh_protocol
   PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/include
 )
 
 target_link_libraries(dgh_protocol
@@ -14,4 +14,3 @@ target_link_libraries(dgh_protocol
 )
 
 target_compile_features(dgh_protocol PUBLIC cxx_std_17)
-

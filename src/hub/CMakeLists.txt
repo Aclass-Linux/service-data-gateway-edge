@@ -1,11 +1,11 @@
 add_library(dgh_hub
-  src/HubEngine.cpp
-  src/DdlExecutor.cpp
+  HubEngine.cpp
+  DdlExecutor.cpp
 )
 
 target_include_directories(dgh_hub
   PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/include
 )
 
 target_link_libraries(dgh_hub
@@ -17,4 +17,3 @@ target_link_libraries(dgh_hub
 )
 
 target_compile_features(dgh_hub PUBLIC cxx_std_17)
-
