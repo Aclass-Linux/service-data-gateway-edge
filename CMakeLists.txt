@@ -6,13 +6,15 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-option(DGH_BUILD_TESTS "Build unit tests" ON)
+option(ACLASS_BUILD_TESTS "Build unit tests" ON)
 option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 include(GNUInstallDirs)
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/install" CACHE PATH "Install path prefix." FORCE)
 endif()
+
+
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/out/bin")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/out/lib")
@@ -27,7 +29,7 @@ add_subdirectory(src/connectors)
 add_subdirectory(src/hub)
 add_subdirectory(src/app)
 
-if(DGH_BUILD_TESTS)
+if(ACLASS_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests/core)
   add_subdirectory(tests/protocol)

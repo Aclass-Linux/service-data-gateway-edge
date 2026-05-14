@@ -10,7 +10,7 @@
       "name": "base",
       "hidden": true,
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/cache",
+      "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
@@ -21,7 +21,7 @@
       "inherits": "base",
       "cacheVariables": {
         "BUILD_SHARED_LIBS": "OFF",
-        "DGH_BUILD_TESTS": "ON"
+        "ACLASS_BUILD_TESTS": "ON"
       }
     },
     {
@@ -30,7 +30,7 @@
       "inherits": "base",
       "cacheVariables": {
         "BUILD_SHARED_LIBS": "ON",
-        "DGH_BUILD_TESTS": "ON"
+        "ACLASS_BUILD_TESTS": "ON"
       }
     }
   ],
