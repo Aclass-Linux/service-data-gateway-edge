@@ -7,8 +7,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(DGH_BUILD_TESTS "Build unit tests" ON)
-option(DGH_BUILD_SAMPLES "Build sample programs" ON)
-
 include(GNUInstallDirs)
 
 add_subdirectory(src/core)
@@ -25,8 +23,4 @@ if(DGH_BUILD_TESTS)
   add_subdirectory(tests/data)
   add_subdirectory(tests/connectors)
   add_subdirectory(tests/hub)
-endif()
-
-if(DGH_BUILD_SAMPLES)
-  add_subdirectory(samples/basic_usage)
 endif()
