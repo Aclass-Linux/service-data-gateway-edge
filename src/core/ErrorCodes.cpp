@@ -1,6 +1,6 @@
-#include "DataGatewayHub/Core/ErrorCodes.h"
+#include "DataGatewayEdge/Core/ErrorCodes.h"
 
-namespace DataGatewayHub::Core {
+namespace DataGatewayEdge::Core {
 
 const char* toString(ErrorCode code) {
   switch (code) {
@@ -16,5 +16,4 @@ const char* toString(ErrorCode code) {
   }
 }
 
-}  // namespace DataGatewayHub::Core
-
+}  // namespace DataGatewayEdge::Core

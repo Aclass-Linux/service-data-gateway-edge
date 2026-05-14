@@ -2,12 +2,11 @@
 
 #include <string>
 
-namespace DataGatewayHub::Connectors {
+namespace DataGatewayEdge::Connectors {
 
 class MqttConnector {
 public:
   bool publish(const std::string& topic, const std::string& payload) const;
 };
 
-}  // namespace DataGatewayHub::Connectors
-
+}  // namespace DataGatewayEdge::Connectors

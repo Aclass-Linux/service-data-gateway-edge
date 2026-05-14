@@ -3,7 +3,7 @@
 #include <string>
 #include <unordered_map>
 
-namespace DataGatewayHub::Core {
+namespace DataGatewayEdge::Core {
 
 class Config {
 public:
@@ -14,5 +14,4 @@ private:
   std::unordered_map<std::string, std::string> values_;
 };
 
-}  // namespace DataGatewayHub::Core
-
+}  // namespace DataGatewayEdge::Core

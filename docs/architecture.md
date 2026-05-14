@@ -1,4 +1,4 @@
-# DataGatewayHub Architecture
+# DataGatewayEdge Architecture
 
 ## Layers
 

@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-namespace DataGatewayHub::Data {
+namespace DataGatewayEdge::Data {
 
 class Repository {
 public:
@@ -14,5 +14,4 @@ private:
   std::vector<std::string> records_;
 };
 
-}  // namespace DataGatewayHub::Data
-
+}  // namespace DataGatewayEdge::Data

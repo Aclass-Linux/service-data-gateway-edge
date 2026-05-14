@@ -2,7 +2,7 @@
 
 #include <cstddef>
 
-namespace DataGatewayHub::Data {
+namespace DataGatewayEdge::Data {
 
 class ConnectionPool {
 public:
@@ -14,5 +14,4 @@ private:
   std::size_t size_;
 };
 
-}  // namespace DataGatewayHub::Data
-
+}  // namespace DataGatewayEdge::Data

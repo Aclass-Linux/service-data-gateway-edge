@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace DataGatewayHub::Protocol {
+namespace DataGatewayEdge::Protocol {
 
 class Packet {
 public:
@@ -15,5 +15,4 @@ private:
   std::vector<std::uint8_t> payload_;
 };
 
-}  // namespace DataGatewayHub::Protocol
-
+}  // namespace DataGatewayEdge::Protocol

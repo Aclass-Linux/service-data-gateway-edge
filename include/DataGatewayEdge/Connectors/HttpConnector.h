@@ -2,12 +2,11 @@
 
 #include <string>
 
-namespace DataGatewayHub::Connectors {
+namespace DataGatewayEdge::Connectors {
 
 class HttpConnector {
 public:
   std::string get(const std::string& endpoint) const;
 };
 
-}  // namespace DataGatewayHub::Connectors
-
+}  // namespace DataGatewayEdge::Connectors

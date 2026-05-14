@@ -1,10 +1,9 @@
 #include <cassert>
 
-#include "DataGatewayHub/Connectors/HttpConnector.h"
+#include "DataGatewayEdge/Connectors/HttpConnector.h"
 
 int main() {
-  DataGatewayHub::Connectors::HttpConnector connector;
+  DataGatewayEdge::Connectors::HttpConnector connector;
   assert(connector.get("/health") == "GET /health");
   return 0;
 }
-

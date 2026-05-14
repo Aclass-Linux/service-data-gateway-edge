@@ -2,12 +2,11 @@
 
 #include <string>
 
-namespace DataGatewayHub::Hub {
+namespace DataGatewayEdge::Hub {
 
 class HubEngine {
 public:
   std::string start() const;
 };
 
-}  // namespace DataGatewayHub::Hub
-
+}  // namespace DataGatewayEdge::Hub

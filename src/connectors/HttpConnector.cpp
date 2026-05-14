@@ -1,10 +1,9 @@
-#include "DataGatewayHub/Connectors/HttpConnector.h"
+#include "DataGatewayEdge/Connectors/HttpConnector.h"
 
-namespace DataGatewayHub::Connectors {
+namespace DataGatewayEdge::Connectors {
 
 std::string HttpConnector::get(const std::string& endpoint) const {
   return "GET " + endpoint;
 }
 
-}  // namespace DataGatewayHub::Connectors
-
+}  // namespace DataGatewayEdge::Connectors

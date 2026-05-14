@@ -2,12 +2,12 @@
 
 ## Logger
 
-`DataGatewayHub::Core::Logger` provides a minimal logging entrypoint.
+`DataGatewayEdge::Core::Logger` provides a minimal logging entrypoint.
 
 ## Config
 
-`DataGatewayHub::Core::Config` stores string key-value pairs.
+`DataGatewayEdge::Core::Config` stores string key-value pairs.
 
 ## ErrorCodes
 
-`DataGatewayHub::Core::ErrorCode` defines shared status values.
+`DataGatewayEdge::Core::ErrorCode` defines shared status values.

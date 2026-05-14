@@ -1,6 +1,6 @@
-#include "DataGatewayHub/Protocol/Packet.h"
+#include "DataGatewayEdge/Protocol/Packet.h"
 
-namespace DataGatewayHub::Protocol {
+namespace DataGatewayEdge::Protocol {
 
 Packet::Packet(std::vector<std::uint8_t> payload) : payload_(std::move(payload)) {}
 
@@ -8,5 +8,4 @@ const std::vector<std::uint8_t>& Packet::payload() const {
   return payload_;
 }
 
-}  // namespace DataGatewayHub::Protocol
-
+}  // namespace DataGatewayEdge::Protocol

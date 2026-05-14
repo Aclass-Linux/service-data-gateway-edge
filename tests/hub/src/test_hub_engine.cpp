@@ -1,10 +1,9 @@
 #include <cassert>
 
-#include "DataGatewayHub/Hub/HubEngine.h"
+#include "DataGatewayEdge/Hub/HubEngine.h"
 
 int main() {
-  DataGatewayHub::Hub::HubEngine engine;
+  DataGatewayEdge::Hub::HubEngine engine;
   assert(engine.start() == "HubEngine started");
   return 0;
 }
-

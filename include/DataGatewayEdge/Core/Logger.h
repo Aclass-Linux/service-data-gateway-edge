@@ -2,12 +2,11 @@
 
 #include <string>
 
-namespace DataGatewayHub::Core {
+namespace DataGatewayEdge::Core {
 
 class Logger {
 public:
   static void info(const std::string& message);
 };
 
-}  // namespace DataGatewayHub::Core
-
+}  // namespace DataGatewayEdge::Core

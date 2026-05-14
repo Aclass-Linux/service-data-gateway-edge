@@ -1,6 +1,6 @@
 #pragma once
 
-namespace DataGatewayHub::Core {
+namespace DataGatewayEdge::Core {
 
 enum class ErrorCode {
   Ok = 0,
@@ -11,5 +11,4 @@ enum class ErrorCode {
 
 const char* toString(ErrorCode code);
 
-}  // namespace DataGatewayHub::Core
-
+}  // namespace DataGatewayEdge::Core

@@ -1,10 +1,9 @@
-#include "DataGatewayHub/Hub/DdlExecutor.h"
+#include "DataGatewayEdge/Hub/DdlExecutor.h"
 
-namespace DataGatewayHub::Hub {
+namespace DataGatewayEdge::Hub {
 
 std::string DdlExecutor::execute(const std::string& statement) const {
   return "Executed: " + statement;
 }
 
-}  // namespace DataGatewayHub::Hub
-
+}  // namespace DataGatewayEdge::Hub

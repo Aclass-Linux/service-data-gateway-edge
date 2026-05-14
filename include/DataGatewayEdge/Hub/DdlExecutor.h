@@ -2,12 +2,11 @@
 
 #include <string>
 
-namespace DataGatewayHub::Hub {
+namespace DataGatewayEdge::Hub {
 
 class DdlExecutor {
 public:
   std::string execute(const std::string& statement) const;
 };
 
-}  // namespace DataGatewayHub::Hub
-
+}  // namespace DataGatewayEdge::Hub
