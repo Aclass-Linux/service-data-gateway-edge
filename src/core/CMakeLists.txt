@@ -1,12 +1,11 @@
-add_library(dgh_core
-  Logger.cpp
-  Config.cpp
-  ErrorCodes.cpp
+add_library(core
+  Aclass_core.h
+
 )
 
-target_include_directories(dgh_core
+target_include_directories(core
   PUBLIC
     ${CMAKE_SOURCE_DIR}/include
 )
 
-target_compile_features(dgh_core PUBLIC cxx_std_17)
+target_compile_features(core PUBLIC cxx_std_17)

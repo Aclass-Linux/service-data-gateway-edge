@@ -23,17 +23,8 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/out/static")
 
 
 add_subdirectory(src/core)
-add_subdirectory(src/protocol)
-add_subdirectory(src/data)
-add_subdirectory(src/connectors)
-add_subdirectory(src/hub)
 add_subdirectory(src/app)
 
 if(ACLASS_BUILD_TESTS)
   enable_testing()
-  add_subdirectory(tests/core)
-  add_subdirectory(tests/protocol)
-  add_subdirectory(tests/data)
-  add_subdirectory(tests/connectors)
-  add_subdirectory(tests/hub)
 endif()
