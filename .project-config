@@ -1,0 +1,45 @@
+# ============================================================
+# DataGatewayEdge 项目配置
+# ============================================================
+# 使用 := 语法 — 已存在的环境变量不会被覆盖
+# 修改后重新 source scripts/env.sh 生效
+#
+# 用法示例：
+#   export BUILD_TYPE=release    # 临时切换（本次终端）
+#   BUILD_TYPE=release build     # 单次编译覆盖
+#   编辑本文件                   # 永久生效
+# ============================================================
+
+# ---- 目标架构 ----
+: "${ARCH:=x86}"
+#   x86          本机编译
+#   arm32        交叉编译（需 cmake/arm32-toolchain.cmake）
+
+# ---- 构建类型 ----
+: "${BUILD_TYPE:=debug}"
+#   debug        无 -Werror，适合日常开发
+#   release      启用 -Werror，所有警告视为错误
+
+# ---- CMake 构建选项 ----
+# 多个选项用空格分隔
+: "${CMAKE_ARGS:=}"
+#   常用选项一览（去掉行首 # 即可启用）：
+#
+#   -- 编译特性 --
+#   # 关闭测试编译
+#   CMAKE_ARGS="-DACLASS_BUILD_TESTS=OFF"
+#   # 关闭严格警告
+#   CMAKE_ARGS="-DACLASS_STRICT_WARNINGS=OFF"
+#   # 编译为动态库
+#   CMAKE_ARGS="-DBUILD_SHARED_LIBS=ON"
+#
+#   -- C++ 标准 --
+#   # 切到 C++20
+#   CMAKE_ARGS="-DCMAKE_CXX_STANDARD=20"
+#   # 允许编译器降级（编译通过即可，不强制标准）
+#   CMAKE_ARGS="-DCMAKE_CXX_STANDARD_REQUIRED=OFF"
+#   # 启用 GCC 扩展语法（如 VLA、typeof）
+#   CMAKE_ARGS="-DCMAKE_CXX_EXTENSIONS=ON"
+#
+#   -- 组合 --
+#   CMAKE_ARGS="-DACLASS_BUILD_TESTS=OFF -DCMAKE_CXX_STANDARD=20"
