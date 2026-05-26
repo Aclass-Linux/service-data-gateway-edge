@@ -5,9 +5,4 @@ target_sources(core INTERFACE
   FILES Aclass_core.h
 )
 
-target_include_directories(core
-  INTERFACE
-    ${CMAKE_SOURCE_DIR}/include
-)
-
 target_compile_features(core INTERFACE cxx_std_17)

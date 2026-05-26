@@ -6,6 +6,7 @@ add_executable(data-gateway-edge
 # 链接项目库（C++ 标准由根 CMakeLists.txt 统一管理）
 target_link_libraries(data-gateway-edge
   PRIVATE
+    modbus
     core
 )
 
