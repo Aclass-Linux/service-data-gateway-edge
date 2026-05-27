@@ -39,6 +39,7 @@ __cmake_gen() {
   fi
   cmake -B "$build_dir" \
     -DCMAKE_BUILD_TYPE="$([ "$BUILD_TYPE" = release ] && echo Release || echo Debug)" \
+    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
     ${CMAKE_ARGS} \
     "${extra[@]}"
 }
