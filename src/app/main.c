@@ -10,9 +10,6 @@
 
 #define TEST_FIFO_NAME "./testfifo"
 
-
-
-
 int main(void) 
 {
     // 匿名管道
@@ -20,8 +17,6 @@ int main(void)
     pipe(int fd[2]);    // fd[0] 只读 fd[1] 只写
     pipe2(int fd[2],flag); // flag: O_CLOEXEC (执行exec关闭) O_NONBLOCK(非阻塞)
     */
-
-
     if ((mkfifo(TEST_FIFO_NAME, 0666) == -1) 
                                     && (errno != EEXIST)) {
         perror("mkfifo");
