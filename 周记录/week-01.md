@@ -298,6 +298,10 @@ ioctl杂项
 | 💻 Coding | **实现 `simulator.c` v1** | ① 用 `mkfifo()` 创建 `/tmp/temp_fifo`<br>② 用 `open()` 打开 FIFO（写端）<br>③ `while(1)` 循环：`rand() % 81 + 20` 生成 20-100 温度值，`write()` 写入 FIFO<br>④ `sleep(1)` 每秒一次<br>⑤ **关键**：用 `srand(time(NULL))` 每次运行种子不同 |
 | 📝 复盘 | `cat /tmp/temp_fifo` 验证数据流 | 写端关闭重开会怎样？ |
 
+#### 学习FFmpeg的线程间通讯方案，用这个线程间的通讯方案来设计当前代码
+
+
+
 ### 📌 周四 05/28 — SIGPIPE 信号处理
 
 | 时段 | 内容 | 详情 |
