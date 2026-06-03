@@ -1,20 +1,28 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  项目：DataGatewayHub — Linux 工业边缘网关
+  语言：C（C11 标准，C11 新特性需标注 /* C11 */）
+  构建：CMake ≥ 3.20，`cmake -B build -DCMAKE_BUILD_TYPE=Debug`
+  快捷命令：source aclass.env.sh 后可用 build / clean / rebuild / run
+  阶段：M1（第 1-6 周）单进程 C 原型，详见 项目计划.md
+  架构：四层（app → protocol → connectors → core），详见 openspec/specs/architecture.md
+  约定：snake_case 命名，UPPER_CASE 宏，MQTT 用 #ifdef DGH_HAS_MQTT 条件编译
+  文档：以中文为主，优先读 项目说明.md、项目计划.md
+  学习记录：journal/（每日 markdown）
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+rules:
+  proposal:
+    - 必须包含 Why、What Changes、Impact 三部分
+  specs:
+    - 每条 requirement 必须有 Scenario（WHEN / THEN / AND）
+  tasks:
+    - 任务按层拆分（app/protocol/connectors/core）
+    - 每个任务标注预计耗时
+    - 条件编译特性需单独标注
+
+
+glossary:
+  M1: "第1-6周的单进程C原型阶段"
+  edge gateway: "边缘网关，运行在工业现场的嵌入式设备"
+  connector: "连接器层，处理设备协议适配"
