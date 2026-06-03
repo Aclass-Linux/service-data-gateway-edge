@@ -2,6 +2,9 @@ build/
 out/
 .idea/
 .vscode/
+.opencode/
+
+
 *.o
 *.obj
 *.a
@@ -10,4 +13,3 @@ out/
 *.dylib
 *.exe
 *.log
-
