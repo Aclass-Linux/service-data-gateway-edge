@@ -1,8 +1,10 @@
 build/
+install/
 out/
 .idea/
 .vscode/
 .opencode/
+.project.local.config
 
 
 *.o
