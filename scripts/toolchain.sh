@@ -5,6 +5,8 @@
 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 BUILD_DIR="${PROJECT_ROOT}/build"
 
+_DGH_GIT="$(command -v git 2>/dev/null || echo /usr/bin/git)"
+
 _dgh_check_compiler() {
     if [ "$ARCH" = "armv7" ] && [ -n "${CROSS_COMPILE_PATH:-}" ]; then
         if [ ! -f "${CROSS_COMPILE_PATH}/arm-linux-gnueabihf-gcc" ]; then
@@ -13,6 +15,26 @@ _dgh_check_compiler() {
             return 1
         fi
     fi
+}
+
+_dgh_submodules_missing=false
+
+_dgh_check_submodules() {
+    _dgh_submodules_missing=false
+    local sm_entries
+    sm_entries=$("$_DGH_GIT" config -f "${PROJECT_ROOT}/.project.submodules" --name-only --get-regexp '\.path$' 2>/dev/null || true)
+    while IFS= read -r key; do
+        [ -z "$key" ] && continue
+        local name
+        name="${key#submodule.}"
+        name="${name%.path}"
+        local path
+        path=$("$_DGH_GIT" config -f "${PROJECT_ROOT}/.project.submodules" "submodule.$name.path" 2>/dev/null || true)
+        if [ -n "$path" ] && [ ! -d "${PROJECT_ROOT}/${path}" ]; then
+            _dgh_submodules_missing=true
+            break
+        fi
+    done <<< "$sm_entries"
 }
 
 _dgh_check_arch_change() {
@@ -24,22 +46,6 @@ _dgh_check_arch_change() {
         if [ "$prev_arch" != "$ARCH" ]; then
             echo "Architecture changed: $prev_arch -> $ARCH, cleaning build directory ..."
             rm -rf "$BUILD_DIR"
-        fi
-    fi
-}
-
-_dgh_check_submodules() {
-    if [ -d "${PROJECT_ROOT}/third-party" ]; then
-        local found_missing=false
-        for submod_dir in "${PROJECT_ROOT}/third-party"/*/; do
-            if [ -d "$submod_dir" ] && [ ! -f "${submod_dir}CMakeLists.txt" ] && [ ! -f "${submod_dir}Makefile" ]; then
-                found_missing=true
-                break
-            fi
-        done
-        if $found_missing; then
-            echo "Initializing submodules ..."
-            command git -C "$PROJECT_ROOT" submodule update --init
         fi
     fi
 }

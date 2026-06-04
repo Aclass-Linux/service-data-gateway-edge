@@ -9,16 +9,18 @@
 #   clean                清理构建产物
 #   rebuild              先 clean 再 build
 #   run                  运行网关程序（x86_64 only）
-#   submodule-add <url> <path>   添加 git submodule
+#   submodule-add <url> <path> [tag]  添加 git submodule（可选锁定 tag）
 #   submodule-rm <path>          删除 git submodule
 #   submodule-sync               同步所有 submodule
 #   help               显示此帮助信息
 
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 export PROJECT_ROOT
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH}"
 
 CONFIG_FILE="${PROJECT_ROOT}/.project.config"
 LOCAL_CONFIG_FILE="${PROJECT_ROOT}/.project.local.config"
+SM_FILE="${PROJECT_ROOT}/.project.submodules"
 
 _dgh_load_config() {
     ARCH=x86_64
@@ -63,30 +65,27 @@ TEMPLATE
 _dgh_load_config
 _dgh_init_local_config
 
-build() {
-    # shellcheck source=/dev/null
-    . "${PROJECT_ROOT}/scripts/toolchain.sh"
-    # shellcheck source=/dev/null
-    . "${PROJECT_ROOT}/scripts/build.sh"
-}
+if [ ! -f "$SM_FILE" ]; then
+    touch "$SM_FILE"
+    echo "Created .project.submodules"
+fi
 
-release() {
-    CMAKE_BUILD_TYPE=Release
-    export CMAKE_BUILD_TYPE
-    build
-    # shellcheck source=/dev/null
-    . "${PROJECT_ROOT}/scripts/release.sh"
-}
+# 顶层一次性加载所有函数定义
+_DGH_LOADED=true
+export _DGH_LOADED
 
-clean() {
-    # shellcheck source=/dev/null
-    . "${PROJECT_ROOT}/scripts/clean.sh"
-}
+# shellcheck source=/dev/null
+. "${PROJECT_ROOT}/scripts/toolchain.sh"
+. "${PROJECT_ROOT}/scripts/build.sh"
+. "${PROJECT_ROOT}/scripts/release.sh"
+. "${PROJECT_ROOT}/scripts/clean.sh"
+. "${PROJECT_ROOT}/scripts/submodule.sh"
 
-rebuild() {
-    clean
-    build
-}
+# 函数体：简单调用
+build()            { _dgh_build; }
+release()          { CMAKE_BUILD_TYPE=Release; export CMAKE_BUILD_TYPE; _dgh_build; _dgh_release; }
+clean()            { _dgh_clean; }
+rebuild()          { _dgh_clean; _dgh_build; }
 
 run() {
     if [ "$ARCH" = "armv7" ]; then
@@ -97,23 +96,9 @@ run() {
     "${PROJECT_ROOT}/build/bin/gateway" "$@"
 }
 
-submodule-add() {
-    # shellcheck source=/dev/null
-    . "${PROJECT_ROOT}/scripts/submodule.sh"
-    _dgh_submodule_add "$@"
-}
-
-submodule-rm() {
-    # shellcheck source=/dev/null
-    . "${PROJECT_ROOT}/scripts/submodule.sh"
-    _dgh_submodule_rm "$@"
-}
-
-submodule-sync() {
-    # shellcheck source=/dev/null
-    . "${PROJECT_ROOT}/scripts/submodule.sh"
-    _dgh_submodule_sync
-}
+submodule-add()    { _dgh_submodule_add "$@"; }
+submodule-rm()     { _dgh_submodule_rm "$@"; }
+submodule-sync()   { _dgh_submodule_sync; }
 
 _dgh_help() {
     echo "Available commands:"
@@ -122,14 +107,12 @@ _dgh_help() {
     echo "  clean              清理构建产物"
     echo "  rebuild            clean + build"
     echo "  run                运行网关程序（x86_64 only）"
-    echo "  submodule-add      添加 git submodule"
+    echo "  submodule-add      添加 git submodule（可选 tag 锁定版本）"
     echo "  submodule-rm       删除 git submodule"
     echo "  submodule-sync     同步所有 submodule"
     echo "  help               显示此帮助信息"
 }
 
-help() {
-    _dgh_help
-}
+help() { _dgh_help; }
 
 _dgh_help
