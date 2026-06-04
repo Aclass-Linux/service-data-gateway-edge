@@ -1,0 +1,3 @@
+[submodule "cjson"]
+	path = third-party/cjson
+	url = https://github.com/Aclass-third-party/cjson.git
