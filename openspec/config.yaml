@@ -7,7 +7,7 @@ context: |
   快捷命令：source aclass.env.sh 后可用 build / clean / rebuild / run
   阶段：M1（第 1-6 周）单进程 C 原型，详见 项目计划.md
   架构：四层（app → protocol → connectors → core），详见 openspec/specs/architecture.md
-  约定：snake_case 命名，UPPER_CASE 宏，MQTT 用 #ifdef DGH_HAS_MQTT 条件编译
+  约定：snake_case 命名，UPPER_CASE 宏，MQTT 用 #ifdef EGW_HAS_MQTT 条件编译
   文档：以中文为主，优先读 项目说明.md、项目计划.md
   学习记录：journal/（每日 markdown）
 

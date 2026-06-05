@@ -8,13 +8,13 @@ SM_FILE="${PROJECT_ROOT}/.project.submodules"
 GITMODULES="${PROJECT_ROOT}/.gitmodules"
 
 # 缓存外部命令路径
-_DGH_GIT="$(command -v git 2>/dev/null || echo /usr/bin/git)"
-_DGH_RM="$(command -v rm 2>/dev/null || echo /bin/rm)"
+_EGW_GIT="$(command -v git 2>/dev/null || echo /usr/bin/git)"
+_EGW_RM="$(command -v rm 2>/dev/null || echo /bin/rm)"
 
 # 每次 git 调用都显式传递 PATH，绕过 zsh 继承问题
-_GH() { PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH" "$_DGH_GIT" "$@"; }
-
-_dgh_submodule_add() {
+_GH() { PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH" "$_EGW_GIT" "$@"; }
+ 
+_egw_submodule_add() {
     local url="$1"
     local submod_path="$2"
     local tag="$3"
@@ -39,7 +39,7 @@ _dgh_submodule_add() {
     echo "Remember to commit: git add .project.submodules && git commit"
 }
 
-_dgh_submodule_rm() {
+_egw_submodule_rm() {
     local submod_path="$1"
     local name
     name="${submod_path##*/}"
@@ -50,11 +50,11 @@ _dgh_submodule_rm() {
     # git 处理 submodule 删除
     _GH -C "$PROJECT_ROOT" submodule deinit -f "$submod_path"
     _GH -C "$PROJECT_ROOT" rm -f "$submod_path"
-    "$_DGH_RM" -rf "${PROJECT_ROOT}/.git/modules/${name}" "${PROJECT_ROOT}/.git/modules/${submod_path}"
+    "$_EGW_RM" -rf "${PROJECT_ROOT}/.git/modules/${name}" "${PROJECT_ROOT}/.git/modules/${submod_path}"
     echo "Submodule removed: $submod_path"
 }
 
-_dgh_submodule_sync() {
+_egw_submodule_sync() {
     local entries
     entries=$(_GH config -f "$SM_FILE" --name-only --get-regexp '\.url$' 2>/dev/null || true)
 
@@ -117,7 +117,7 @@ _dgh_submodule_sync() {
                 if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
                     _GH -C "$PROJECT_ROOT" submodule deinit -f "$submod_dir"
                     _GH -C "$PROJECT_ROOT" rm -f "$submod_dir"
-                    "$_DGH_RM" -rf "${PROJECT_ROOT}/.git/modules/${submod_dir##*/}" "${PROJECT_ROOT}/.git/modules/${dir_name}"
+                    "$_EGW_RM" -rf "${PROJECT_ROOT}/.git/modules/${submod_dir##*/}" "${PROJECT_ROOT}/.git/modules/${dir_name}"
                     echo "Removed: $submod_dir"
                 fi
             fi
@@ -125,4 +125,24 @@ _dgh_submodule_sync() {
     fi
 
     echo "Submodules synced."
+}
+
+_egw_submodules_missing=false
+
+_egw_check_submodules() {
+    _egw_submodules_missing=false
+    local sm_entries
+    sm_entries=$("$_EGW_GIT" config -f "${PROJECT_ROOT}/.project.submodules" --name-only --get-regexp '\.path$' 2>/dev/null || true)
+    while IFS= read -r key; do
+        [ -z "$key" ] && continue
+        local name
+        name="${key#submodule.}"
+        name="${name%.path}"
+        local path
+        path=$("$_EGW_GIT" config -f "${PROJECT_ROOT}/.project.submodules" "submodule.$name.path" 2>/dev/null || true)
+        if [ -n "$path" ] && [ ! -d "${PROJECT_ROOT}/${path}" ]; then
+            _egw_submodules_missing=true
+            break
+        fi
+    done <<< "$sm_entries"
 }

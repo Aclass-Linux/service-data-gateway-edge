@@ -1,18 +1,16 @@
 # cmake/toolchain-armv7.cmake
-# armv7 交叉编译 — 引用环境变量 CROSS_COMPILE_PATH / SYSROOT_PATH
+# armv7 交叉编译 — 从 .project.local.config 读取 COMPILE_PATH / SYSROOT_PATH
+
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR arm)
 
-if(NOT DEFINED ENV{CROSS_COMPILE_PATH})
-    message(FATAL_ERROR "CROSS_COMPILE_PATH is not set. Set it in .project.local.config")
+if(DEFINED COMPILE_PATH)
+    set(CMAKE_C_COMPILER "${COMPILE_PATH}/arm-linux-gnueabihf-gcc")
 endif()
 
-if(NOT DEFINED ENV{SYSROOT_PATH})
-    message(FATAL_ERROR "SYSROOT_PATH is not set. Set it in .project.local.config")
+if(DEFINED COMPILE_PATH)
+    set(CMAKE_SYSROOT "${SYSROOT_PATH}")
 endif()
-
-set(CMAKE_C_COMPILER "$ENV{CROSS_COMPILE_PATH}/arm-linux-gnueabihf-gcc")
-set(CMAKE_SYSROOT "$ENV{SYSROOT_PATH}")
 
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)

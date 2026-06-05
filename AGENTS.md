@@ -36,8 +36,8 @@ submodule-sync              # 同步所有 submodule
 
 | 文件 | 用途 | 是否提交 |
 |---|---|---|
-| `.project.config` | 公共配置：ARCH、DGH_LINK、CMAKE_BUILD_TYPE | 是 |
-| `.project.local.config` | 本地覆盖：CROSS_COMPILE_PATH、SYSROOT_PATH | 否（.gitignore） |
+| `.project.config` | 公共配置：ARCH、EGW_LINK、CMAKE_BUILD_TYPE | 是 |
+| `.project.local.config` | 本地覆盖：COMPILE_PATH、SYSROOT_PATH | 否（.gitignore） |
 
 ## 架构（见 `openspec/specs/architecture.md`）
 
@@ -52,7 +52,7 @@ app → protocol → connectors → core
 | 路径 | 说明 |
 |---|---|
 | `aclass.env.sh` | **入口** — source 后获得快捷命令，委托 scripts/ |
-| `.project.config` | 公共构建配置（ARCH/CMAKE_BUILD_TYPE/DGH_LINK） |
+| `.project.config` | 公共构建配置（ARCH/CMAKE_BUILD_TYPE/EGW_LINK） |
 | `.project.local.config` | 本地构建覆盖（工具链路径） |
 | `scripts/` | 独立可执行脚本（build/clean/release/toolchain/submodule） |
 | `cmake/` | CMake 工具链文件（toolchain-x86_64 / toolchain-armv7） |

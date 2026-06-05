@@ -6,7 +6,7 @@
 
 | 文件 | 用途 | 是否提交 |
 |---|---|---|
-| `.project.config` | 公共配置：ARCH、DGH_LINK、CMAKE_BUILD_TYPE | 是 |
+| `.project.config` | 公共配置：ARCH、EGW_LINK、CMAKE_BUILD_TYPE | 是 |
 | `.project.local.config` | 本地覆盖：CROSS_COMPILE_PATH、SYSROOT_PATH | 否（.gitignore） |
 
 #### 配置加载顺序
@@ -19,7 +19,7 @@
 #### 默认值
 
 - **WHEN** `.project.config` 不存在
-- **THEN** 使用硬编码默认值（ARCH=x86_64, DGH_LINK=shared, CMAKE_BUILD_TYPE=Debug）
+- **THEN** 使用硬编码默认值（ARCH=x86_64, EGW_LINK=shared, CMAKE_BUILD_TYPE=Debug）
 
 #### 架构切换
 
@@ -68,11 +68,11 @@
 | ARCH | 工具链文件 | 编译器 |
 |------|-----------|--------|
 | x86_64 | `cmake/toolchain-x86_64.cmake` | 系统默认 |
-| armv7 | `cmake/toolchain-armv7.cmake` | CROSS_COMPILE_PATH/arm-linux-gnueabihf-gcc |
+| armv7 | `cmake/toolchain-armv7.cmake` | COMPILE_PATH/arm-linux-gnueabihf-gcc |
 
 #### 编译器路径检查
 
-- **WHEN** `ARCH=armv7` 且 `CROSS_COMPILE_PATH` 已配
+- **WHEN** `ARCH=armv7` 且 `COMPILE_PATH` 已配
 - **THEN** 检查编译器是否存在，不存在时报错退出
 
 #### ARM 运行保护
@@ -92,8 +92,8 @@
 
 ### 链接方式
 
-- **WHEN** DGH_LINK=shared → 动态链接
-- **WHEN** DGH_LINK=static → 静态链接
+- **WHEN** EGW_LINK=shared → 动态链接
+- **WHEN** EGW_LINK=static → 静态链接
 
 ---
 

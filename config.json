@@ -1,0 +1,28 @@
+{
+    "mqtt": {
+        "broker": "10.0.0.1",
+        "port": 1883,
+        "topic_prefix": "factory/line1"
+    },
+    "modbus": {
+        "serial_ports": [
+            {
+                "path": "/dev/ttyS0",
+                "baud": 9600,
+                "parity": "N",
+                "devices": [
+                    { "slave_id": 1, "poll_interval": 5 },
+                    { "slave_id": 2, "poll_interval": 5 }
+                ]
+            },
+            {
+                "path": "/dev/ttyS1",
+                "baud": 19200,
+                "parity": "N",
+                "devices": [
+                    { "slave_id": 1, "poll_interval": 10 }
+                ]
+            }
+        ]
+    }
+}

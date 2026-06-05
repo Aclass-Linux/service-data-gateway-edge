@@ -22,48 +22,49 @@ CONFIG_FILE="${PROJECT_ROOT}/.project.config"
 LOCAL_CONFIG_FILE="${PROJECT_ROOT}/.project.local.config"
 SM_FILE="${PROJECT_ROOT}/.project.submodules"
 
-_dgh_load_config() {
+_egw_load_config() {
     ARCH=x86_64
-    DGH_LINK=shared
+    ACLASS_LIB_MODE=SHARED
     CMAKE_BUILD_TYPE=Debug
-
-    if [ -f "$CONFIG_FILE" ]; then
-        # shellcheck source=/dev/null
-        . "$CONFIG_FILE"
-    fi
 
     if [ -f "$LOCAL_CONFIG_FILE" ]; then
         # shellcheck source=/dev/null
         . "$LOCAL_CONFIG_FILE"
     fi
 
-    export ARCH DGH_LINK CMAKE_BUILD_TYPE
+    if [ -f "$CONFIG_FILE" ]; then
+        # shellcheck source=/dev/null
+        . "$CONFIG_FILE"
+    fi
 
-    if [ -n "${CROSS_COMPILE_PATH:-}" ]; then
-        export CROSS_COMPILE_PATH
+    export ARCH CMAKE_BUILD_TYPE
+
+    if [ -n "${COMPILE_PATH:-}" ]; then
+        export COMPILE_PATH
     fi
     if [ -n "${SYSROOT_PATH:-}" ]; then
         export SYSROOT_PATH
     fi
 }
 
-_dgh_init_local_config() {
+_egw_init_local_config() {
     if [ ! -f "$LOCAL_CONFIG_FILE" ]; then
         cat > "$LOCAL_CONFIG_FILE" <<'TEMPLATE'
-# 本地配置（不提交 git）
-# 交叉编译时填写以下路径：
-# CROSS_COMPILE_PATH=/opt/toolchains/gcc-arm-9.2-2019.12-x86_64-arm-linux-gnueabihf/bin
-# SYSROOT_PATH=/opt/sysroots/armv7
+# ── 本地配置 ──────────────────────────────────────────
+# 此文件会被 .project.config 的同名变量覆盖，不提交 git
+# 目前主要负责提供编译链路径，其余变量不生效
+# ──────────────────────────────────────────────────────
+
+# ── 编译器路径（需指定GCC位置时填写）─────────────────────
+# COMPILE_PATH=/opt/toolchains/armv7
+
 TEMPLATE
-        echo "Created .project.local.config from template."
-        echo "For cross-compilation add toolchain paths:"
-        echo "  CROSS_COMPILE_PATH=/path/to/your/toolchain/bin"
-        echo "  SYSROOT_PATH=/path/to/your/sysroot"
+        echo "Created .project.local.config"
     fi
 }
 
-_dgh_load_config
-_dgh_init_local_config
+_egw_load_config
+_egw_init_local_config
 
 if [ ! -f "$SM_FILE" ]; then
     touch "$SM_FILE"
@@ -71,21 +72,20 @@ if [ ! -f "$SM_FILE" ]; then
 fi
 
 # 顶层一次性加载所有函数定义
-_DGH_LOADED=true
-export _DGH_LOADED
+_EGW_LOADED=true
+export _EGW_LOADED
 
 # shellcheck source=/dev/null
-. "${PROJECT_ROOT}/scripts/toolchain.sh"
 . "${PROJECT_ROOT}/scripts/build.sh"
 . "${PROJECT_ROOT}/scripts/release.sh"
 . "${PROJECT_ROOT}/scripts/clean.sh"
 . "${PROJECT_ROOT}/scripts/submodule.sh"
 
 # 函数体：简单调用
-build()            { _dgh_build; }
-release()          { CMAKE_BUILD_TYPE=Release; export CMAKE_BUILD_TYPE; _dgh_build; _dgh_release; }
-clean()            { _dgh_clean; }
-rebuild()          { _dgh_clean; _dgh_build; }
+build()            { _egw_build; }
+release()          { CMAKE_BUILD_TYPE=Release; export CMAKE_BUILD_TYPE; _egw_build; _egw_release; }
+clean()            { _egw_clean; }
+rebuild()          { _egw_clean; _egw_build; }
 
 run() {
     if [ "$ARCH" = "armv7" ]; then
@@ -93,14 +93,14 @@ run() {
         echo "Deploy install/ to target board or set ARCH=x86_64 for local testing."
         return 1
     fi
-    "${PROJECT_ROOT}/build/bin/gateway" "$@"
+    "${PROJECT_ROOT}/build/bin/${ACLASS_PROJECT_NAME:-AClassDemo_x86_64}" "$@"
 }
 
-submodule-add()    { _dgh_submodule_add "$@"; }
-submodule-rm()     { _dgh_submodule_rm "$@"; }
-submodule-sync()   { _dgh_submodule_sync; }
+submodule-add()    { _egw_submodule_add "$@"; }
+submodule-rm()     { _egw_submodule_rm "$@"; }
+submodule-sync()   { _egw_submodule_sync; }
 
-_dgh_help() {
+_egw_help() {
     echo "Available commands:"
     echo "  build              cmake 配置 + 编译"
     echo "  release            编译 Release 并安装到 install/"
@@ -113,6 +113,6 @@ _dgh_help() {
     echo "  help               显示此帮助信息"
 }
 
-help() { _dgh_help; }
+help() { _egw_help; }
 
-_dgh_help
+_egw_help
