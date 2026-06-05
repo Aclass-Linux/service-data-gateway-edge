@@ -6,25 +6,27 @@
 
 | 文件 | 用途 | 是否提交 |
 |---|---|---|
-| `.project.config` | 公共配置：ARCH、EGW_LINK、CMAKE_BUILD_TYPE | 是 |
-| `.project.local.config` | 本地覆盖：CROSS_COMPILE_PATH、SYSROOT_PATH | 否（.gitignore） |
+| 文件 | 用途 | 是否提交 |
+|---|---|---|
+| `.project.config` | 公共配置：ARCH、`*_LIB_MODE`、CMAKE_BUILD_TYPE、ACLASS_PROJECT_NAME | 是 |
+| `.project.local.config` | 本地覆盖：COMPILE_PATH、SYSROOT_PATH | 否（.gitignore） |
 
 #### 配置加载顺序
 
 - **WHEN** `aclass.env.sh` 被 source
-- **THEN** 先加载 `.project.config` 设置默认值
-- **AND** 再加载 `.project.local.config`（若存在）
+- **THEN** 先加载 `.project.local.config` 设置个人默认值
+- **AND** 再加载 `.project.config`（若存在）
 - **AND** 后者覆盖前者同名变量
 
 #### 默认值
 
 - **WHEN** `.project.config` 不存在
-- **THEN** 使用硬编码默认值（ARCH=x86_64, EGW_LINK=shared, CMAKE_BUILD_TYPE=Debug）
+- **THEN** 使用硬编码默认值（ARCH=x86_64, ACLASS_LIB_MODE=SHARED, CMAKE_BUILD_TYPE=Debug）
 
 #### 架构切换
 
 - **WHEN** 修改 ARCH 值
-- **THEN** 下次 `build` 时检测到架构变更
+- **THEN** 下次 `build` 时检测到架构变更（通过 `.build_arch` 标记文件）
 - **AND** 自动清理 build/ 目录后重新编译
 
 ---
@@ -35,13 +37,14 @@
 
 - **WHEN** 执行 `build`
 - **THEN** cmake 配置 + 编译，产物输出到 `build/bin/` 和 `build/lib/`
+- **AND** 所有配置变量（ARCH、`*_LIB_MODE` 等）从 `.project.config` / `.project.local.config` 自动传入 cmake
 - **AND** 设 BUILD_RPATH=$ORIGIN/../lib
 
 ### Release
 
 - **WHEN** 执行 `release`
 - **THEN** 先执行 build，再 cmake --install 到 `install/`
-- **AND** 输出 `install/bin/gateway` 和 `install/lib/*.so`
+- **AND** 输出可执行文件和 `lib/*.so`
 - **AND** 设 INSTALL_RPATH=$ORIGIN/../lib
 - **AND** 每次 release 先 `rm -rf install/` 再 install
 
@@ -65,15 +68,17 @@
 
 ## 工具链
 
-| ARCH | 工具链文件 | 编译器 |
+工具链选择由 `AClass.cmake` 在 `project()` 之前根据 `ARCH` 自动完成。
+
+| ARCH | 工具链文件 | 编译器来源 |
 |------|-----------|--------|
-| x86_64 | `cmake/toolchain-x86_64.cmake` | 系统默认 |
-| armv7 | `cmake/toolchain-armv7.cmake` | COMPILE_PATH/arm-linux-gnueabihf-gcc |
+| x86_64 | `cmake/toolchain-x86_64.cmake` | 系统默认或 COMPILE_PATH（可选） |
+| armv7 | `cmake/toolchain-armv7.cmake` | COMPILE_PATH（必填） |
 
-#### 编译器路径检查
+#### 编译器检查
 
-- **WHEN** `ARCH=armv7` 且 `COMPILE_PATH` 已配
-- **THEN** 检查编译器是否存在，不存在时报错退出
+- **WHEN** `ARCH=armv7` 且 `COMPILE_PATH` 未设置
+- **THEN** CMake 报错要求配置 `.project.local.config`
 
 #### ARM 运行保护
 
@@ -92,8 +97,9 @@
 
 ### 链接方式
 
-- **WHEN** EGW_LINK=shared → 动态链接
-- **WHEN** EGW_LINK=static → 静态链接
+- **WHEN** ACLASS_LIB_MODE=SHARED → 动态链接
+- **WHEN** ACLASS_LIB_MODE=STATIC → 静态链接
+- **WHEN** ACLASS_LIB_MODE=OBJECT → 仅编译目标文件，符号合入最终目标
 
 ---
 
@@ -144,7 +150,7 @@
 
 ## 架构变更检测
 
-`build/` 下存放 `.build_arch` 标记文件。
+`build/` 下存放 `.build_arch` 标记文件，由 `build.sh` 内联逻辑管理。
 
 - **WHEN** ARCH 值与上次构建不同 → 自动 `rm -rf build/` 后重新构建
 - **WHEN** ARCH 值与上次构建相同 → 正常增量编译
