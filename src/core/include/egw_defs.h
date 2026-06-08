@@ -17,16 +17,18 @@
  * @brief 全局错误码
  *
  * 所有模块共享同一套错误码。0 = 成功，负值 = 错误。
- * 新增错误码追加在末尾，保持现有值不变以维持兼容性。
+ * 顺序编号，新增错误码在末尾追加，保持现有值不变。
+ * 模块归属通过宏命名前缀区分（如 EGW_ERR_MQTT_*）。
  */
 typedef int32_t egw_err_t;
 
-#define EGW_OK                  (0)  /**< 成功 */
-#define EGW_ERR_FILE_NOT_FOUND  (-1) /**< 文件不存在或无法打开 */
-#define EGW_ERR_PARSE           (-2) /**< 解析失败（JSON/CSV/协议） */
-#define EGW_ERR_MISSING_KEY     (-3) /**< 必需字段缺失 */
-#define EGW_ERR_REGISTRY_FULL   (-4) /**< 注册表已满 */
-#define EGW_ERR_HANDLER         (-5) /**< 模块 handler 返回错误 */
+#define EGW_OK                  (0)
+
+#define EGW_ERR_FILE_NOT_FOUND  (-1)
+#define EGW_ERR_PARSE           (-2)
+#define EGW_ERR_MISSING_KEY     (-3)
+#define EGW_ERR_REGISTRY_FULL   (-4)
+#define EGW_ERR_HANDLER         (-5)
 
 
 /**

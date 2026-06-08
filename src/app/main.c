@@ -13,7 +13,10 @@ static void print_config(egw_conf_t *cfg) {
     printf("\n[MODBUS]\n");
     printf("  serial_ports:\n");
 
-    int n_ports = egw_conf_array_length(cfg, "modbus.serial_ports");
+    int n_ports;
+    if (EGW_CONF_ARR_LEN(cfg, "modbus.serial_ports", &n_ports) != EGW_OK) {
+        return;
+    }
     for (int p = 0; p < n_ports; p++) {
         char base[64];
         snprintf(base, sizeof(base), "modbus.serial_ports[%d]", p);
@@ -33,7 +36,10 @@ static void print_config(egw_conf_t *cfg) {
         char devices_base[256];
         snprintf(devices_base, sizeof(devices_base), "%s.devices", base);
 
-        int n_devs = egw_conf_array_length(cfg, devices_base);
+        int n_devs;
+        if (EGW_CONF_ARR_LEN(cfg, devices_base, &n_devs) != EGW_OK) {
+            n_devs = 0;
+        }
         for (int d = 0; d < n_devs; d++) {
             char dev_path[512];
             snprintf(dev_path, sizeof(dev_path), "%s[%d]", devices_base, d);
@@ -58,9 +64,10 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    egw_conf_t *cfg = egw_conf_load(cfg_path);
-    if (!cfg) {
-        fprintf(stderr, "Failed to load config\n");
+    egw_conf_t *cfg;
+    egw_err_t err = egw_conf_load(cfg_path, &cfg);
+    if (err != EGW_OK) {
+        fprintf(stderr, "Failed to load config: %d\n", err);
         return 1;
     }
 
