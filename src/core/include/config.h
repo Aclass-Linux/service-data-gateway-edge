@@ -12,6 +12,11 @@
  *
  * 线程安全：egw_conf_t 句柄不可跨线程传递或共享。
  * 多线程环境下每个线程必须独立加载自己的句柄。
+ *
+ * TODO: 无 cJSON 后端（快速启动场景）
+ *   - 不使用 cJSON 时，所有查询直接返回 def 默认值，数组长度返回 0
+ *   - 数组默认值问题待解决：单靠 def 参数无法表达固定拓扑（如"N 个设备"），
+ *     后续通过 Python 脚本从 JSON 配置生成 .c/.h 文件，将默认配置编译进固件
  */
 
 #ifndef EGW_CONFIG_H
@@ -19,7 +24,7 @@
 
 #include "egw_defs.h"
 #include <stdbool.h>
-
+#ifdef USE_JSON_CONFIG
 /**
  * @brief 配置句柄（不透明）
  *
@@ -106,15 +111,12 @@ bool         egw_conf_get_bool(egw_conf_t *cfg, const char *key_path, bool def);
 /**
  * @brief 查询数组长度
  *
- * @param[in]  cfg       配置句柄
- * @param[in]  key_path  JSON Pointer 路径（RFC 6901），指向一个 JSON 数组
- * @param[out] len       成功时写入数组长度
- * @return EGW_OK            成功
- * @return EGW_ERR_HANDLER   参数为 NULL
- * @return EGW_ERR_MISSING_KEY  键路径不存在
- * @return EGW_ERR_PARSE      目标不是数组
+ * @param[in] cfg       配置句柄
+ * @param[in] key_path  JSON Pointer 路径（RFC 6901），指向一个 JSON 数组
+ * @param[in] def       键不存在或目标不是数组时的默认值
+ * @return 数组长度，或 def
  */
-egw_err_t    egw_conf_array_length(egw_conf_t *cfg, const char *key_path, int *len);
+int egw_conf_array_length(egw_conf_t *cfg, const char *key_path, int def);
 
 /** @brief egw_conf_get_string 的宏包装，自动展开参数 */
 #define EGW_CONF_STR(cfg, path, def)    egw_conf_get_string((cfg), (path), (def))
@@ -123,6 +125,19 @@ egw_err_t    egw_conf_array_length(egw_conf_t *cfg, const char *key_path, int *l
 /** @brief egw_conf_get_bool 的宏包装 */
 #define EGW_CONF_BOOL(cfg, path, def)   egw_conf_get_bool((cfg), (path), (def))
 /** @brief egw_conf_array_length 的宏包装 */
-#define EGW_CONF_ARR_LEN(cfg, path, out) egw_conf_array_length((cfg), (path), (out))
+#define EGW_CONF_ARR_LEN(cfg, path, def) egw_conf_array_length((cfg), (path), (def))
+#else 
+/** @brief egw_conf_get_string 的宏包装，自动展开参数 */
+#define EGW_CONF_STR(cfg, path, def)    (def)
+/** @brief egw_conf_get_int 的宏包装 */
+#define EGW_CONF_INT(cfg, path, def)    (def)
+/** @brief egw_conf_get_bool 的宏包装 */
+#define EGW_CONF_BOOL(cfg, path, def)    (def)
+/** @brief egw_conf_array_length 的宏包装 */
+#define EGW_CONF_ARR_LEN(cfg, path, def) (def)
+#endif
+
+
+
 
 #endif /* EGW_CONFIG_H */

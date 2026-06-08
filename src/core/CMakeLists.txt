@@ -1,3 +1,9 @@
+if(NOT DEFINED USE_JSON_CONFIG)
+    set(USE_JSON_CONFIG ON)
+endif()
+
+
+
 set(core_src 
     config.c
 )

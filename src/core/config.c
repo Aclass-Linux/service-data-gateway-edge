@@ -144,19 +144,17 @@ bool egw_conf_get_bool(egw_conf_t *cfg, const char *key_path, bool def) {
     return cJSON_IsTrue(item);
 }
 
-egw_err_t egw_conf_array_length(egw_conf_t *cfg, const char *key_path, int *len) {
-    if (!cfg || !key_path || !len) {
-        return EGW_ERR_HANDLER;
+int egw_conf_array_length(egw_conf_t *cfg, const char *key_path, int def) {
+    if (!cfg) {
+        return def;
     }
 
     cJSON *item = cJSONUtils_GetPointer(cfg->cur, key_path);
     if (!item) {
-        return EGW_ERR_MISSING_KEY;
+        return def;
     }
     if (!cJSON_IsArray(item)) {
-        return EGW_ERR_PARSE;
+        return def;
     }
-
-    *len = cJSON_GetArraySize(item);
-    return EGW_OK;
+    return cJSON_GetArraySize(item);
 }

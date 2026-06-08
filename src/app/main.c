@@ -2,8 +2,6 @@
 #include <string.h>
 #include "config.h"
 
-#pragma GCC diagnostic ignored "-Wformat-truncation"
-
 static void print_config(egw_conf_t *cfg) {
     printf("[MQTT]\n");
     printf("  broker = %s\n", EGW_CONF_STR(cfg, "/mqtt/broker", "(null)"));
@@ -13,8 +11,8 @@ static void print_config(egw_conf_t *cfg) {
     printf("\n[MODBUS]\n");
     printf("  serial_ports:\n");
 
-    int n_ports;
-    if (EGW_CONF_ARR_LEN(cfg, "/modbus/serial_ports", &n_ports) != EGW_OK) {
+    int n_ports = EGW_CONF_ARR_LEN(cfg, "/modbus/serial_ports", 0);
+    if (n_ports <= 0) {
         return;
     }
     for (int p = 0; p < n_ports; p++) {
@@ -28,10 +26,7 @@ static void print_config(egw_conf_t *cfg) {
 
         printf("      devices:\n");
 
-        int n_devs;
-        if (EGW_CONF_ARR_LEN(cfg, "/devices", &n_devs) != EGW_OK) {
-            n_devs = 0;
-        }
+        int n_devs = EGW_CONF_ARR_LEN(cfg, "/devices", 0);
         for (int d = 0; d < n_devs; d++) {
             char dev_path[128];
             snprintf(dev_path, sizeof(dev_path), "/modbus/serial_ports/%d/devices/%d", p, d);
