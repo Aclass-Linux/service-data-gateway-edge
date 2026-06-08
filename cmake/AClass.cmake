@@ -2,8 +2,13 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
-# ── 项目名称 ────────────────────────────────────
-set(ACLASS_PROJECT_NAME "AClassDemo_${ARCH}" CACHE STRING "Project name for output naming")
+# ── 编译选项 ──────────────────────────────────────
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-Wall -Wextra)
+    if(CMAKE_BUILD_TYPE STREQUAL "Release")
+        add_compile_options(-Werror)
+    endif()
+endif()
 
 # ── 库链接模式 ────────────────────────────────────
 set(ACLASS_LIB_MODE "STATIC" CACHE STRING "Library mode: SHARED, STATIC or OBJECT")

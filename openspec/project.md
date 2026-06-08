@@ -15,16 +15,25 @@ Linux 边缘网关（主站），采集 Modbus、IEC 104、自定义协议数据
 
 ## 当前阶段：M1 单进程原型
 
-项目按里程碑渐进实现，详见 `项目计划.md`。当前为 M1（第 1-6 周）：
+项目按里程碑渐进实现，详见 `项目计划.md`。
 
-| 周 | 任务 | 产出 |
-|---|---|---|
-| 1 | 模拟数据源 FIFO + 信号处理 | simulator.c |
-| 2 | 主控读取 FIFO + 时间戳 | gateway_v1.c |
-| 3 | 守护进程 + syslog | gateway_v1 增强 |
-| 4 | MQTT 上传（Paho） | 数据上云 |
-| 5 | 看门狗 + 子进程管理 | 高可用 |
-| 6 | 调试 + 稳定性 | 稳定版 |
+### 已完成
+
+| 模块 | 产出 |
+|---|---|
+| 构建系统 | `aclass.env.sh` + CMake/Ninja，支持 x86_64/armv7 |
+| core 配置框架 | cJSON 封装，key path 查询，egw_err_t 错误码，EGW_EXPORT 宏 |
+| app 入口 | 加载 config.json，打印 MQTT/Modbus 配置，支持 -c 参数 |
+
+### 待完成（M1 剩余）
+
+| 任务 | 产出 |
+|---|---|
+| 模拟数据源 FIFO + 信号处理 | simulator.c |
+| MQTT 上传（Paho） | 数据上云 |
+| 守护进程 + syslog | daemon 化 |
+| 看门狗 + 子进程管理 | 高可用 |
+| 调试 + 稳定性 | 稳定版 |
 
 ## 架构
 
@@ -52,8 +61,9 @@ app → protocol → connectors → core
 ```
 ├── aclass.env.sh          # source 后获得快捷命令
 ├── scripts/               # 独立构建/清理/安装脚本
-├── src/app/               # 当前唯一有代码的目录
-├── src/{core,protocol}/   # 空目录（M2+ 预留）
+├── src/app/               # 可执行入口
+├── src/core/              # 基础组件（配置框架、错误码）
+├── src/{protocol,connectors}/  # 空目录（M2+ 预留）
 ├── openspec/              # 规范驱动工作流
 ├── journal/               # 每日学习记录
 └── tests/                 # 空（尚未引入测试）

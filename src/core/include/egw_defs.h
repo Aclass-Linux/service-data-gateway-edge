@@ -9,23 +9,25 @@
 #ifndef EGW_DEFS_H
 #define EGW_DEFS_H
 
+#include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
 
 /**
  * @brief 全局错误码
  *
- * 所有模块共享同一套错误码枚举。
- * 新增错误码追加到末尾以保持兼容性。
+ * 所有模块共享同一套错误码。0 = 成功，负值 = 错误。
+ * 新增错误码追加在末尾，保持现有值不变以维持兼容性。
  */
-typedef enum {
-    EGW_OK                  = 0,  /**< 成功 */
-    EGW_ERR_FILE_NOT_FOUND  = -1, /**< 文件不存在或无法打开 */
-    EGW_ERR_PARSE           = -2, /**< 解析失败（JSON/CSV/协议） */
-    EGW_ERR_MISSING_KEY     = -3, /**< 必需字段缺失 */
-    EGW_ERR_REGISTRY_FULL   = -4, /**< 注册表已满 */
-    EGW_ERR_HANDLER         = -5, /**< 模块 handler 返回错误 */
-} egw_err_t;
+typedef int32_t egw_err_t;
+
+#define EGW_OK                  (0)  /**< 成功 */
+#define EGW_ERR_FILE_NOT_FOUND  (-1) /**< 文件不存在或无法打开 */
+#define EGW_ERR_PARSE           (-2) /**< 解析失败（JSON/CSV/协议） */
+#define EGW_ERR_MISSING_KEY     (-3) /**< 必需字段缺失 */
+#define EGW_ERR_REGISTRY_FULL   (-4) /**< 注册表已满 */
+#define EGW_ERR_HANDLER         (-5) /**< 模块 handler 返回错误 */
+
 
 /**
  * @brief 编译器构造函数属性。

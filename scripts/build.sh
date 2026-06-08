@@ -30,7 +30,6 @@ _egw_build() {
     local cmake_args=(
         -G Ninja
         -B "$BUILD_DIR"
-        -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE"
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
     )
 
@@ -48,6 +47,10 @@ _egw_build() {
             esac
         done < "$f"
     done
+
+    # 环境变量中的 CMAKE_BUILD_TYPE 优先级高于配置文件
+    # release() 设此值为 Release，build() 沿用配置文件中的 Debug
+    cmake_args+=(-DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE")
 
     cmake "${cmake_args[@]}" "$PROJECT_ROOT" || {
         if $_egw_submodules_missing; then

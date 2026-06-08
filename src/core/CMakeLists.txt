@@ -15,15 +15,12 @@ target_sources(egw_core PRIVATE
 
 target_sources(egw_core PUBLIC
     FILE_SET HEADERS
-    BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}
+    BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/include
     FILES     ${core_inc}
 )
 
 target_link_libraries(egw_core PRIVATE 
     cjson)
-
-target_include_directories(egw_core PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 install(TARGETS egw_core
     LIBRARY   DESTINATION lib     # .so

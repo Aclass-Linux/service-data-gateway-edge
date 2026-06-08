@@ -5,67 +5,52 @@
 ## 构建与运行
 
 ```bash
-source aclass.env.sh    # 加载配置，提供 build/release/clean/rebuild/run/submodule-* 命令
-build                   # cmake 配置 + 编译（产物在 build/bin/ + build/lib/）
+source aclass.env.sh    # 必须 source，提供 build/release/clean/rebuild/run/submodule-* 命令
+build                   # cmake 配置 + Ninja 编译（产物在 build/bin/EdgeGateWay）
 release                 # build(Release) + cmake --install → install/
-run                     # 运行 build/bin/gateway（仅 x86_64）
+run                     # 运行 build/bin/EdgeGateWay（仅 x86_64）
 clean                   # 删除 build/
 rebuild                 # clean + build
-submodule-add <url> <path>  # 添加 git submodule
-submodule-rm <path>         # 删除 git submodule
-submodule-sync              # 同步所有 submodule
+submodule-add/sync/rm   # git submodule 管理
 ```
 
-配置通过 `.project.config`（公共）和 `.project.local.config`（本地覆盖）控制。
-`scripts/` 下脚本可独立运行，不依赖 `aclass.env.sh`。
+配置通过 `.project.config`（公共）和 `.project.local.config`（本地覆盖）控制。`scripts/` 下脚本可直接运行。
 
-## 项目状态
+## 当前实现状态
 
-早期阶段，仅有 `src/app/main.c`（hello world 测试桩）。其余目录：
-- `src/{core,protocol}/` — 空目录，M2+ 预留架构（见 `openspec/specs/architecture.md`）
-- `tests/` — 空，尚未引入测试
+| 层 | 路径 | 状态 |
+|---|---|---|
+| `app` | `src/app/main.c` | ✅ 加载 config.json（-c 参数），打印 MQTT/Modbus 配置 |
+| `core` | `src/core/` | ✅ 配置框架（cJSON key-path 查询）、错误码（egw_err_t）、模块自动初始化宏（EGW_EXPORT） |
+| `protocol` | `src/protocol/` | ⚪ 空目录 |
+| `connectors` | `src/connectors/` | ⚪ 空目录 |
+
+构建产物命名由 `.project.config` 中 `ACLASS_PROJECT_NAME` 控制（当前：`EdgeGateWay`）。
+
+## 依赖
+
+- `third-party/cjson` — git submodule，由 `build` 自动同步
+- CMake 中 `src/core` → 静态库 `egw_core` → 链接给 `src/app`
+- 新增子模块时 `.gitmodules` 和 `.project.submodules` 两个文件需保持同步
 
 ## 技术栈
 
-- C11（`_Noreturn`、`_Static_assert` 等 C11 特性使用时需标注 `/* C11 */`）
-- CMake ≥ 3.20，通过 `.project.config` + `cmake/toolchain-*.cmake` 管理配置
-- 目标平台：Linux（x86_64 / armv7）
-- 第三方依赖：git submodule（third-party/）
-
-## 配置
-
-| 文件 | 用途 | 是否提交 |
-|---|---|---|
-| `.project.config` | 公共配置：ARCH、EGW_LINK、CMAKE_BUILD_TYPE | 是 |
-| `.project.local.config` | 本地覆盖：COMPILE_PATH、SYSROOT_PATH | 否（.gitignore） |
-
-## 架构（见 `openspec/specs/architecture.md`）
-
-```
-app → protocol → connectors → core
-```
-
-当前只有 `app` 有实现。
-
-## 目录结构要点
-
-| 路径 | 说明 |
-|---|---|
-| `aclass.env.sh` | **入口** — source 后获得快捷命令，委托 scripts/ |
-| `.project.config` | 公共构建配置（ARCH/CMAKE_BUILD_TYPE/EGW_LINK） |
-| `.project.local.config` | 本地构建覆盖（工具链路径） |
-| `scripts/` | 独立可执行脚本（build/clean/release/toolchain/submodule） |
-| `cmake/` | CMake 工具链文件（toolchain-x86_64 / toolchain-armv7） |
-| `third-party/` | git submodule 第三方依赖 |
-| `build/` | Debug 产物（bin/ + lib/） |
-| `install/` | Release 产物（bin/ + lib/） |
-| `journal/` | 每日学习记录（markdown） |
-| `openspec/` | 规范驱动变更工作流 |
+- C11（`_Noreturn`、`_Static_assert` 等 C11 特性使用时标注 `/* C11 */`）
+- CMake ≥ 3.20，通过 `.project.config` + `cmake/toolchain-*.cmake` 管理交叉编译
+- 目标平台：Linux x86_64 / armv7
+- 第三方：git submodule（当前仅 `cjson`）
 
 ## 避免踩坑
 
-- 不要直接运行 `cmake` 而不用 `aclass.env.sh` — 路径和参数由脚本统一管理
-- `src/{core,protocol}/` 是空目录，添加新源文件时需同时创建对应的 `CMakeLists.txt`
+- 不要直接运行 `cmake` — 路径和参数由 `aclass.env.sh` 统一管理
 - 切换 ARCH 时 build 会自动检测并清理重建
-- `release` 强制使用 CMAKE_BUILD_TYPE=Release，忽略配置文件中的设置
-- ARM 架构下 `run` 命令不可用
+- `release` 强制 `CMAKE_BUILD_TYPE=Release`，忽略配置文件
+- ARM 下 `run` 不可用
+- `src/{core,protocol}/` 添加新源文件时需同时更新对应 `CMakeLists.txt`
+- `src/protocol/` 和 `src/connectors/` 尚未创建 CMakeLists.txt，新目录需加 `add_subdirectory`
+- 主 `CMakeLists.txt` 中 `cmake/toolchain-${ARCH}.cmake` 和 `include(cmake/AClass.cmake)` 的顺序必须保持不变
+
+## 与 Git 交互
+
+- `build/`、`install/`、`.project.local.config` 在 `.gitignore` 中
+- 未跟踪的新文件须 `git add` 后再提交

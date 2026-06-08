@@ -6,12 +6,16 @@
 
 ### Requirement: 全局错误码定义
 
-系统 SHALL 在 `egw_defs.h` 中定义 `egw_err_t` 枚举，供所有模块共享使用。
+系统 SHALL 在 `egw_defs.h` 中定义 `egw_err_t`（`int32_t` 类型别名）及错误码宏，供所有模块共享使用。
 
 #### Scenario: 错误码使用
 - **WHEN** 任一模块需要返回错误状态
-- **THEN** 使用 `egw_err_t` 枚举中的错误码
-- **AND** 新增错误码追加到枚举末尾
+- **THEN** 使用 `egw_err_t` 中的预定义宏
+- **AND** 新增错误码追加在末尾，保持现有宏的值不变
+
+#### Scenario: 约定
+- **WHEN** 函数返回 `egw_err_t`
+- **THEN** `EGW_OK`（0）表示成功，负值表示错误
 
 #### Scenario: 错误码覆盖范围
 - **WHEN** 模块发生文件、解析、内存等通用错误

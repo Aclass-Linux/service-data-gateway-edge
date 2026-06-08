@@ -68,9 +68,11 @@ _egw_submodule_sync() {
         path=$(_GH config -f "$SM_FILE" "submodule.$name.path" 2>/dev/null || echo "$name")
         tag=$(_GH config -f "$SM_FILE" "submodule.$name.tag" 2>/dev/null || true)
 
-        if [ ! -d "${PROJECT_ROOT}/${path}" ]; then
+        if [ ! -d "${PROJECT_ROOT}/${path}" ] || [ ! -e "${PROJECT_ROOT}/${path}/.git" ]; then
             local in_gitmodules
             in_gitmodules=$(_GH config -f "$GITMODULES" "submodule.$name.url" 2>/dev/null || true)
+            # 清理空目录残留（如上次 clone 中断），避免干扰 submodule add
+            [ -d "${PROJECT_ROOT}/${path}" ] && rmdir "${PROJECT_ROOT}/${path}" 2>/dev/null
             if [ -n "$in_gitmodules" ]; then
                 _GH -C "$PROJECT_ROOT" submodule update --init "$path"
             else
@@ -78,7 +80,7 @@ _egw_submodule_sync() {
             fi
         fi
 
-        if [ -n "$tag" ] && [ -d "${PROJECT_ROOT}/${path}" ]; then
+        if [ -n "$tag" ] && [ -d "${PROJECT_ROOT}/${path}" ] && [ -e "${PROJECT_ROOT}/${path}/.git" ]; then
             local current
             current=$(_GH -C "${PROJECT_ROOT}/${path}" describe --tags --exact-match 2>/dev/null || true)
             if [ "$current" != "$tag" ]; then

@@ -11,11 +11,11 @@
 ### `main` — 程序入口
 
 ```c
-int main(void);
+int main(int argc, char *argv[]);
 ```
 
 - **文件**：`src/app/main.c`
-- **说明**：程序入口，当前输出 `"hello gateway"` 后返回 0
+- **说明**：加载 config.json（-c 参数可指定路径），打印 MQTT/Modbus 配置
 - **状态**：已实现
 
 ---
@@ -35,18 +35,31 @@ DataGatewayHub::Core::Logger
 
 ### Config — 配置存储
 
-```cpp
-DataGatewayHub::Core::Config
+```c
+egw_conf_t *egw_conf_load(const char *path);
+void        egw_conf_free(egw_conf_t *cfg);
+const char *egw_conf_get_string(egw_conf_t *cfg, const char *key_path, const char *def);
+int         egw_conf_get_int(egw_conf_t *cfg, const char *key_path, int def);
+bool        egw_conf_get_bool(egw_conf_t *cfg, const char *key_path, bool def);
+int         egw_conf_array_length(egw_conf_t *cfg, const char *key_path);
 ```
 
-- **说明**：字符串键值对配置
-- **状态**：未实现（M2+ 规划）
+- **文件**：`src/core/config.c` + `src/core/include/config.h`
+- **说明**：cJSON 封装，支持 key path 查询（如 `"modbus.serial_ports[0].baud"`），不足时返回默认值
+- **状态**：已实现
 
-### ErrorCode — 错误码定义
+### egw_err_t — 错误码定义
 
-```cpp
-DataGatewayHub::Core::ErrorCode
+```c
+typedef int32_t egw_err_t;
+#define EGW_OK                  0
+#define EGW_ERR_FILE_NOT_FOUND  (-1)
+#define EGW_ERR_PARSE           (-2)
+#define EGW_ERR_MISSING_KEY     (-3)
+#define EGW_ERR_REGISTRY_FULL   (-4)
+#define EGW_ERR_HANDLER         (-5)
 ```
 
-- **说明**：共享状态值定义
-- **状态**：未实现（M2+ 规划）
+- **文件**：`src/core/include/egw_defs.h`
+- **说明**：全项目共享错误码，新增追加到末尾保持兼容
+- **状态**：已实现

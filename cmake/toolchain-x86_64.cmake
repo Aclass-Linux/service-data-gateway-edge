@@ -12,3 +12,14 @@ endif()
 if(DEFINED COMPILE_PATH)
     set(CMAKE_SYSROOT "${SYSROOT_PATH}")
 endif()
+
+# ── 编译器 & 汇编器 ────────────────────────────────
+set(CMAKE_ASM_COMPILER   ${CMAKE_C_COMPILER})
+set(CMAKE_LINKER         ${CMAKE_C_COMPILER})
+set(CMAKE_OBJCOPY        objcopy)
+set(CMAKE_SIZE           size)
+
+# ── 编译器默认行为（显式化，避免依赖编译器自身默认值）─
+set(CMAKE_C_FLAGS_DEBUG   "-O0 -g3")
+set(CMAKE_C_FLAGS_RELEASE "-O3 -DNDEBUG")
+set(CMAKE_ASM_FLAGS       "-c")
