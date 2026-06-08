@@ -2,8 +2,16 @@
  * @file config.h
  * @brief DataGatewayHub 配置访问层
  *
- * 提供 JSON 配置文件的加载和 key path 实时查询。
+ * 提供 JSON 配置文件的加载和 JSON Pointer（RFC 6901）实时查询。
  * 模块通过 handle 直接查询 cJSON 树，不缓存到 struct。
+ *
+ * 路径语法遵循 RFC 6901：
+ *   - 以 "/" 开头，每层用 "/" 分隔
+ *   - 数组下标直接用数字，如 "/modbus/serial_ports/0/path"
+ *   - 不支持含 "~" 或 "/" 的键名（无需转义）
+ *
+ * 线程安全：egw_conf_t 句柄不可跨线程传递或共享。
+ * 多线程环境下每个线程必须独立加载自己的句柄。
  */
 
 #ifndef EGW_CONFIG_H
@@ -42,11 +50,35 @@ egw_err_t    egw_conf_load(const char *path, egw_conf_t **cfg);
 void         egw_conf_free(egw_conf_t *cfg);
 
 /**
+ * @brief 进入子树，后续查询从该节点开始
+ *
+ * 路径始终从文档根开始查找（绝对路径），与当前 enter 位置无关。
+ * 调用后所有 get/array 查询以该节点为基准（相对路径），
+ * 直到调用 egw_conf_leave() 回到文档根。
+ *
+ * 调用 enter 前无需 leave，连续 enter 会覆盖当前位置。
+ *
+ * @param[in] cfg       配置句柄
+ * @param[in] key_path  从文档根开始的 JSON Pointer 路径（绝对路径）
+ * @return EGW_OK             成功
+ * @return EGW_ERR_HANDLER    参数为 NULL
+ * @return EGW_ERR_MISSING_KEY  路径不存在
+ */
+egw_err_t    egw_conf_enter(egw_conf_t *cfg, const char *key_path);
+
+/**
+ * @brief 离开子树，回到文档根节点
+ *
+ * @param[in] cfg  配置句柄，可为 NULL
+ */
+void         egw_conf_leave(egw_conf_t *cfg);
+
+/**
  * @brief 查询字符串值
  *
- * @param[in] cfg      配置句柄
- * @param[in] key_path 点分键路径，支持数组下标（如 "modbus.serial_ports[0].path"）
- * @param[in] def      键不存在或类型不匹配时的默认值
+ * @param[in] cfg       配置句柄
+ * @param[in] key_path  JSON Pointer 路径（相对于当前 enter 位置或文档根）
+ * @param[in] def       键不存在或类型不匹配时的默认值
  * @return 查询到的字符串指针（指向 cJSON 内部，生命周期与 cfg 相同），或 def
  */
 const char  *egw_conf_get_string(egw_conf_t *cfg, const char *key_path, const char *def);
@@ -54,9 +86,9 @@ const char  *egw_conf_get_string(egw_conf_t *cfg, const char *key_path, const ch
 /**
  * @brief 查询整数值
  *
- * @param[in] cfg      配置句柄
- * @param[in] key_path 点分键路径
- * @param[in] def      默认值
+ * @param[in] cfg       配置句柄
+ * @param[in] key_path  JSON Pointer 路径（RFC 6901）
+ * @param[in] def       默认值
  * @return 查询到的整数值，或 def
  */
 int          egw_conf_get_int(egw_conf_t *cfg, const char *key_path, int def);
@@ -64,9 +96,9 @@ int          egw_conf_get_int(egw_conf_t *cfg, const char *key_path, int def);
 /**
  * @brief 查询布尔值
  *
- * @param[in] cfg      配置句柄
- * @param[in] key_path 点分键路径
- * @param[in] def      默认值
+ * @param[in] cfg       配置句柄
+ * @param[in] key_path  JSON Pointer 路径（RFC 6901）
+ * @param[in] def       默认值
  * @return 查询到的布尔值，或 def
  */
 bool         egw_conf_get_bool(egw_conf_t *cfg, const char *key_path, bool def);
@@ -74,9 +106,9 @@ bool         egw_conf_get_bool(egw_conf_t *cfg, const char *key_path, bool def);
 /**
  * @brief 查询数组长度
  *
- * @param[in]  cfg      配置句柄
- * @param[in]  key_path 点分键路径，指向一个 JSON 数组
- * @param[out] len      成功时写入数组长度
+ * @param[in]  cfg       配置句柄
+ * @param[in]  key_path  JSON Pointer 路径（RFC 6901），指向一个 JSON 数组
+ * @param[out] len       成功时写入数组长度
  * @return EGW_OK            成功
  * @return EGW_ERR_HANDLER   参数为 NULL
  * @return EGW_ERR_MISSING_KEY  键路径不存在

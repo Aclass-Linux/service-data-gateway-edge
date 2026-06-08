@@ -1,9 +1,0 @@
-{
-    "mqtt": {
-        "broker": "10.0.0.1",
-        "port": 1883
-    },
-    "unknown_module": {
-        "some_field": "should be ignored"
-    }
-}

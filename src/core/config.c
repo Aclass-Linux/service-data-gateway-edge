@@ -1,5 +1,6 @@
 #include "config.h"
 #include <cJSON.h>
+#include <cJSON_Utils.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,68 +8,8 @@
 
 struct egw_conf {
     cJSON *root;
+    cJSON *cur;
 };
-
-/* ── key path 解析 ────────────────────────────────── */
-
-static cJSON *key_path_resolve(cJSON *root, const char *key_path) {
-    if (!root || !key_path || *key_path == '\0') {
-        return NULL;
-    }
-
-    cJSON *current = root;
-    const char *p = key_path;
-    char token[256];
-    int ti;
-
-    while (*p) {
-        while (*p == '.') {
-            p++;
-        }
-        if (*p == '\0') {
-            break;
-        }
-
-        /* 判断是否数组下标 */
-        if (*p == '[') {
-            p++; /* skip '[' */
-            int idx = 0;
-            while (*p >= '0' && *p <= '9') {
-                idx = idx * 10 + (*p - '0');
-                p++;
-            }
-            if (*p == ']') {
-                p++; /* skip ']' */
-            }
-            if (!cJSON_IsArray(current)) {
-                return NULL;
-            }
-            current = cJSON_GetArrayItem(current, idx);
-            if (!current) {
-                return NULL;
-            }
-            /* 跳过后面的 '.' */
-            while (*p == '.') {
-                p++;
-            }
-            continue;
-        }
-
-        /* 读取 key 名直到遇到 . 或 [ 或 \0 */
-        ti = 0;
-        while (*p && *p != '.' && *p != '[' && ti < (int)sizeof(token) - 1) {
-            token[ti++] = *p++;
-        }
-        token[ti] = '\0';
-
-        current = cJSON_GetObjectItem(current, token);
-        if (!current) {
-            return NULL;
-        }
-    }
-
-    return current;
-}
 
 /* ── 生命周期 ────────────────────────────────────── */
 
@@ -119,6 +60,7 @@ egw_err_t egw_conf_load(const char *path, egw_conf_t **out) {
     }
 
     cfg->root = root;
+    cfg->cur = root;
     *out = cfg;
     return EGW_OK;
 }
@@ -133,6 +75,28 @@ void egw_conf_free(egw_conf_t *cfg) {
     free(cfg);
 }
 
+/* ── 位置导航 ────────────────────────────────────── */
+
+egw_err_t egw_conf_enter(egw_conf_t *cfg, const char *key_path) {
+    if (!cfg || !key_path) {
+        return EGW_ERR_HANDLER;
+    }
+
+    cJSON *item = cJSONUtils_GetPointer(cfg->root, key_path);
+    if (!item) {
+        return EGW_ERR_MISSING_KEY;
+    }
+
+    cfg->cur = item;
+    return EGW_OK;
+}
+
+void egw_conf_leave(egw_conf_t *cfg) {
+    if (cfg) {
+        cfg->cur = cfg->root;
+    }
+}
+
 /* ── 取值函数 ────────────────────────────────────── */
 
 const char *egw_conf_get_string(egw_conf_t *cfg, const char *key_path, const char *def) {
@@ -140,7 +104,7 @@ const char *egw_conf_get_string(egw_conf_t *cfg, const char *key_path, const cha
         return def;
     }
 
-    cJSON *item = key_path_resolve(cfg->root, key_path);
+    cJSON *item = cJSONUtils_GetPointer(cfg->cur, key_path);
     if (!item) {
         return def;
     }
@@ -155,7 +119,7 @@ int egw_conf_get_int(egw_conf_t *cfg, const char *key_path, int def) {
         return def;
     }
 
-    cJSON *item = key_path_resolve(cfg->root, key_path);
+    cJSON *item = cJSONUtils_GetPointer(cfg->cur, key_path);
     if (!item) {
         return def;
     }
@@ -170,7 +134,7 @@ bool egw_conf_get_bool(egw_conf_t *cfg, const char *key_path, bool def) {
         return def;
     }
 
-    cJSON *item = key_path_resolve(cfg->root, key_path);
+    cJSON *item = cJSONUtils_GetPointer(cfg->cur, key_path);
     if (!item) {
         return def;
     }
@@ -185,7 +149,7 @@ egw_err_t egw_conf_array_length(egw_conf_t *cfg, const char *key_path, int *len)
         return EGW_ERR_HANDLER;
     }
 
-    cJSON *item = key_path_resolve(cfg->root, key_path);
+    cJSON *item = cJSONUtils_GetPointer(cfg->cur, key_path);
     if (!item) {
         return EGW_ERR_MISSING_KEY;
     }

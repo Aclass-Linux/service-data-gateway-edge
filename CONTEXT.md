@@ -13,3 +13,6 @@
 
 ### 代码风格 (Code Style)
 遵循 MISRA C:2012 Rule 15.6：所有 `if`/`else`/`while`/`for` 体必须是花括号包裹的复合语句，禁止裸语句。Early return 允许（不强制单出口点），但每个 return 必须有花括号。清理动作独立成行，不与 return 挤在同一行。
+
+### 键路径 (Key Path)
+配置查询使用 JSON Pointer（RFC 6901）语法，以 `/` 分隔层级，数组下标直接用数字。如 `/modbus/serial_ports/0/path`。不支持含 `~` 或 `/` 的键名（无需转义）。
