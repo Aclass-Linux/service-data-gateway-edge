@@ -2,11 +2,11 @@ if(NOT DEFINED USE_JSON_CONFIG)
     set(USE_JSON_CONFIG ON)
 endif()
 
-
-
-set(core_src 
-    config.c
-)
+if(USE_JSON_CONFIG)
+    set(core_src config.c)
+else()
+    set(core_src)
+endif()
 
 set(core_inc 
     include/egw_defs.h
@@ -25,8 +25,12 @@ target_sources(egw_core PUBLIC
     FILES     ${core_inc}
 )
 
-target_link_libraries(egw_core PRIVATE 
-    cjson)
+if(USE_JSON_CONFIG)
+    target_compile_definitions(egw_core PUBLIC USE_JSON_CONFIG)
+    target_link_libraries(egw_core PRIVATE cjson)
+endif()
+
+target_link_libraries(egw_core PUBLIC uv_a)
 
 install(TARGETS egw_core
     LIBRARY   DESTINATION lib     # .so

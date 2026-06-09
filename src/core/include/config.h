@@ -13,10 +13,13 @@
  * 线程安全：egw_conf_t 句柄不可跨线程传递或共享。
  * 多线程环境下每个线程必须独立加载自己的句柄。
  *
- * TODO: 无 cJSON 后端（快速启动场景）
- *   - 不使用 cJSON 时，所有查询直接返回 def 默认值，数组长度返回 0
- *   - 数组默认值问题待解决：单靠 def 参数无法表达固定拓扑（如"N 个设备"），
- *     后续通过 Python 脚本从 JSON 配置生成 .c/.h 文件，将默认配置编译进固件
+ * 编译选项：
+ *   - USE_JSON_CONFIG=ON（默认）：启用 cJSON 后端，配置从 JSON 文件加载
+ *   - USE_JSON_CONFIG=OFF：禁用 cJSON 后端，所有查询返回 def 默认值
+ *
+ * TODO: 无 cJSON 后端时数组默认值问题待解决：
+ *   单靠 def 参数无法表达固定拓扑（如"N 个设备"），
+ *   后续通过 Python 脚本从 JSON 配置生成 .c/.h 文件，将默认配置编译进固件
  */
 
 #ifndef EGW_CONFIG_H
@@ -24,6 +27,7 @@
 
 #include "egw_defs.h"
 #include <stdbool.h>
+
 #ifdef USE_JSON_CONFIG
 /**
  * @brief 配置句柄（不透明）
@@ -136,8 +140,5 @@ int egw_conf_array_length(egw_conf_t *cfg, const char *key_path, int def);
 /** @brief egw_conf_array_length 的宏包装 */
 #define EGW_CONF_ARR_LEN(cfg, path, def) (def)
 #endif
-
-
-
 
 #endif /* EGW_CONFIG_H */

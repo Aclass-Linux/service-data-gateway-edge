@@ -1,3 +1,7 @@
 [submodule "cjson"]
 	url = https://github.com/Aclass-third-party/cjson.git
 	path = third-party/cjson
+
+[submodule "libuv"]
+	url = https://github.com/Aclass-third-party/libuv.git
+	path = third-party/libuv

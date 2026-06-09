@@ -1,3 +1,5 @@
-# 打开 CJSON_UTILS
-set(CJSON_UTILS ON)
+# ── cJSON ──────────────────────────────────────────
 add_subdirectory(cjson)
+
+# ── libuv ─────────────────────────────────────────
+add_subdirectory(libuv)
