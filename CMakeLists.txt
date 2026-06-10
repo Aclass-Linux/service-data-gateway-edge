@@ -12,3 +12,8 @@ include(cmake/AClass.cmake)
 
 add_subdirectory(third-party)
 add_subdirectory(src)
+
+if(ACLASS_ENABLE_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()

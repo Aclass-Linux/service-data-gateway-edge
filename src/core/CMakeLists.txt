@@ -30,10 +30,8 @@ if(USE_JSON_CONFIG)
     target_link_libraries(egw_core PRIVATE cjson)
 endif()
 
-target_link_libraries(egw_core PUBLIC uv_a)
-
 install(TARGETS egw_core
-    LIBRARY   DESTINATION lib     # .so
-    ARCHIVE   DESTINATION lib     # .a
+    LIBRARY   DESTINATION lib
+    ARCHIVE   DESTINATION lib
     FILE_SET HEADERS DESTINATION include
 )

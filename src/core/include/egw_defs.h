@@ -30,6 +30,14 @@ typedef int32_t egw_err_t;
 #define EGW_ERR_REGISTRY_FULL   (-4)
 #define EGW_ERR_HANDLER         (-5)
 
+/* ── Transport 错误码 ──────────────────────────── */
+#define EGW_ERR_TP_OPEN         (-10)
+#define EGW_ERR_TP_CLOSE        (-11)
+#define EGW_ERR_TP_WRITE        (-12)
+#define EGW_ERR_TP_READ         (-13)
+#define EGW_ERR_TP_BUSY         (-14)
+#define EGW_ERR_TP_TIMEOUT      (-15)
+
 
 /**
  * @brief 编译器构造函数属性。

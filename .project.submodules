@@ -5,3 +5,7 @@
 [submodule "libuv"]
 	url = https://github.com/Aclass-third-party/libuv.git
 	path = third-party/libuv
+
+[submodule "unity"]
+	url = https://github.com/Aclass-third-party/unity.git
+	path = third-party/unity
