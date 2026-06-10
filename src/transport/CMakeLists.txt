@@ -5,7 +5,7 @@ set(tp_src
 
 set(tp_inc
     include/egw_transport.h
-    include/egw_serial.h
+    include/egw_serial_params.h
 )
 
 add_library(egw_transport STATIC)
@@ -20,15 +20,7 @@ target_sources(egw_transport PUBLIC
     FILES     ${tp_inc}
 )
 
-target_link_libraries(egw_transport PUBLIC uv_a egw_core)
-
-if(NOT DEFINED USE_JSON_CONFIG)
-    set(USE_JSON_CONFIG ON)
-endif()
-
-if(USE_JSON_CONFIG)
-    target_compile_definitions(egw_transport PUBLIC USE_JSON_CONFIG)
-endif()
+target_link_libraries(egw_transport PUBLIC uv egw_core)
 
 install(TARGETS egw_transport
     LIBRARY   DESTINATION lib

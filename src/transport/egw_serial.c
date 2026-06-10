@@ -6,11 +6,8 @@
  * libuv 只负责 I/O 多路复用，不修改串口参数。
  */
 
-#include "egw_serial.h"
-
-#ifdef USE_JSON_CONFIG
-#include "config.h"
-#endif
+#include "egw_transport.h"
+#include "egw_transport_internal.h"
 
 #include <uv.h>
 #include <stdlib.h>
@@ -40,10 +37,13 @@ static egw_err_t egw_serial_do_open(egw_transport_t *tp);
 static egw_err_t egw_serial_do_close(egw_transport_t *tp);
 static egw_err_t egw_serial_do_write(egw_transport_t *tp, const void *buf, size_t len);
 
+static void egw_serial_destroy(egw_transport_t *tp);
+
 static const struct egw_transport_ops egw_serial_ops = {
-    .open  = egw_serial_do_open,
-    .close = egw_serial_do_close,
-    .write = egw_serial_do_write,
+    .open    = egw_serial_do_open,
+    .close   = egw_serial_do_close,
+    .write   = egw_serial_do_write,
+    .destroy = egw_serial_destroy,
 };
 
 /* ── libuv 回调 ──────────────────────────────── */
@@ -173,11 +173,11 @@ static egw_err_t egw_serial_set_termios(int fd, const egw_serial_params_t *param
     return EGW_OK;
 }
 
-/* ── vtable 实现 ──────────────────────────────── */
+/* ── 打开（异步发起 I/O）─────────────────────── */
 
 static egw_err_t egw_serial_do_open(egw_transport_t *tp) {
     egw_serial_t *serial = (egw_serial_t *)tp;
-    uv_loop_t *loop = uv_default_loop();
+    uv_loop_t *loop = &serial->base.inst->loop;
 
     serial->fd = open(serial->path_copy, O_RDWR | O_NOCTTY | O_NDELAY);
     if (serial->fd < 0) {
@@ -301,11 +301,19 @@ static egw_err_t egw_serial_do_write(egw_transport_t *tp, const void *buf, size_
     return EGW_OK;
 }
 
-/* ── 公共接口 ────────────────────────────────── */
+/* ── 销毁（仅自由分配，不开 libuv close）─────────────── */
 
-egw_err_t egw_serial_open(egw_transport_t **tp,
-                           const egw_serial_params_t *params,
-                           const egw_transport_cbs_t *cbs) {
+static void egw_serial_destroy(egw_transport_t *tp) {
+    egw_serial_t *serial = (egw_serial_t *)tp;
+    free(serial->path_copy);
+    free(serial);
+}
+
+/* ── 创建（注册）─────────────────────────────────── */
+
+egw_err_t egw_serial_create(egw_transport_t **tp,
+                             const egw_serial_params_t *params,
+                             const egw_transport_cbs_t *cbs) {
     if (!tp || !params || !cbs) {
         return EGW_ERR_INVAL;
     }
@@ -315,7 +323,7 @@ egw_err_t egw_serial_open(egw_transport_t **tp,
 
     egw_serial_t *serial = calloc(1, sizeof(egw_serial_t));
     if (!serial) {
-        return EGW_ERR_INVAL;
+        return EGW_ERR_NOMEM;
     }
 
     serial->base.ops = &egw_serial_ops;
@@ -339,49 +347,5 @@ egw_err_t egw_serial_open(egw_transport_t **tp,
     serial->params.stop_bits  = params->stop_bits;
 
     *tp = &serial->base;
-
-    return serial->base.ops->open(*tp);
+    return EGW_OK;
 }
-
-#ifdef USE_JSON_CONFIG
-
-egw_err_t egw_serial_from_config(egw_transport_t **tp,
-                                  egw_conf_t *cfg, const char *path,
-                                  const egw_transport_cbs_t *cbs) {
-    if (!tp || !cfg || !path || !cbs) {
-        return EGW_ERR_INVAL;
-    }
-
-    egw_conf_enter(cfg, path);
-
-    egw_serial_params_t params;
-    char *path_str, *parity_str;
-    egw_conf_get_string(cfg, "/path", &path_str, NULL);
-    egw_conf_get_string(cfg, "/parity", &parity_str, "N");
-    params.path      = path_str;
-    params.parity    = parity_str[0];
-    params.baud      = 9600;
-    params.data_bits = 8;
-    params.stop_bits = 1;
-    egw_conf_get_int(cfg, "/baud",      &params.baud, 9600);
-    egw_conf_get_int(cfg, "/data_bits", &params.data_bits, 8);
-    egw_conf_get_int(cfg, "/stop_bits", &params.stop_bits, 1);
-
-    egw_conf_enter(cfg, "");
-
-    if (!params.path) {
-        free(path_str);
-        free(parity_str);
-        if (cbs->on_open) {
-            cbs->on_open(NULL, EGW_ERR_NOTFOUND);
-        }
-        return EGW_ERR_NOTFOUND;
-    }
-
-    egw_err_t err = egw_serial_open(tp, &params, cbs);
-    free(path_str);
-    free(parity_str);
-    return err;
-}
-
-#endif

@@ -18,7 +18,19 @@
 配置查询使用 JSON Pointer（RFC 6901）语法，以 `/` 分隔层级，数组下标直接用数字。如 `/modbus/serial_ports/0/path`。不支持含 `~` 或 `/` 的键名（无需转义）。
 
 ### 传输层 (Transport)
-负责字节流读写的 I/O 通道，不涉及协议解析。例如串口（UART）、TCP 连接、UDP socket。只关心两件事：从通道收字节打包成 packet 推入队列，将队列中的 packet 字节写入通道。不负责配置校验、重连、生命周期管理。全部异步回调模型，基于 libuv event loop。创建时注册回调（open/data/write/close），open 也是异步。回调指针可为 NULL（表示不关心该事件），但 on_data 为 NULL 会导致数据丢弃。多态通过 vtable（函数指针表）实现。回调存放于基类 egw_transport_t。libuv handle 内嵌在具体变种结构体中。测试替换点暂不实现，将来在 params 中加 fd_override 字段即可。
+负责字节流读写的 I/O 通道，不涉及协议解析。例如串口（UART）、TCP 连接、UDP socket。只关心两件事：从通道收字节打包成 packet 推入队列，将队列中的 packet 字节写入通道。不负责配置校验、重连、生命周期管理。全部异步回调模型，基于 libuv event loop。多态通过 vtable（函数指针表）实现。libuv handle 内嵌在具体变种结构体中。
+
+### 传输实例 (Transport Instance)
+用 `egw_transport_instance_t`（不透明句柄）表示一个完整的 transport 子系统实例。内部包含一个 `uv_loop_t`、`uv_async_t`（用于跨线程关闭投递）、待注册队列、以及所有活跃的 `egw_transport_t`。app 负责：
+1. 调用 `egw_transport_create()` 创建实例
+2. 调用 `egw_transport_register()` 逐一注册连接（主线程，同步完成），返回 `egw_transport_t *` 用于后续关闭
+3. 创建线程，在子线程中调用 `egw_transport_run()`（内部 `uv_run`；开始时遍历待注册队列依次 `ops->open`）
+4. 退出时调用 `egw_transport_destroy()` 停止 loop 并释放资源
+
+`egw_transport_instance_t` 不暴露 `uv_loop_t *` 给 app。主线程调 `egw_transport_close(tp)` 通过 `uv_async_send` 投递到 loop 线程执行。写操作只在 loop 线程内（回调中）进行。
+
+### 传输连接 (Transport Connection)
+用 `egw_transport_t *`（不透明句柄）表示一个已注册的 I/O 连接。由 `egw_transport_register` 创建，生命周期绑定于所属的 `egw_transport_instance_t`。关闭后 `egw_transport_t *` 不可再用。
 
 ### 协议层 (Protocol)
 负责解析 packet 的语义和帧边界检测。例如 Modbus RTU 帧解析、MQTT 报文编解码。Protocol 层从队列消费 packet，内部完成帧拼接和拆包（Framer），搭载在 Transport 层之上。Framer 维护自己的缓冲区索引，按来源快速定位未完成的半帧。

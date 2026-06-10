@@ -28,7 +28,6 @@
 #include "egw_defs.h"
 #include <stdbool.h>
 
-#ifdef USE_JSON_CONFIG
 /**
  * @brief 配置句柄（不透明）
  *
@@ -132,7 +131,5 @@ egw_err_t    egw_conf_get_bool(egw_conf_t *cfg, const char *key_path, bool *out,
  * @return EGW_ERR_NOTFOUND 键不存在或目标不是数组，*out = def
  */
 egw_err_t    egw_conf_array_length(egw_conf_t *cfg, const char *key_path, int32_t *out, int32_t def);
-
-#endif /* USE_JSON_CONFIG */
 
 #endif /* EGW_CONFIG_H */

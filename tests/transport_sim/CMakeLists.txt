@@ -6,7 +6,7 @@ endif()
 find_package(Threads REQUIRED)
 
 # ── 通用测试链接 ──────────────────────────────────────
-set(EGW_TEST_LIBS unity egw_transport egw_core uv_a Threads::Threads)
+set(EGW_TEST_LIBS unity egw_transport egw_core uv Threads::Threads)
 
 # ── test_transport ─────────────────────────────────────
 set(TEST_TRANSPORT_SRC test_transport.c)
@@ -16,6 +16,7 @@ target_link_libraries(test_transport PRIVATE ${EGW_TEST_LIBS})
 target_include_directories(test_transport PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/src/transport/include
+    ${CMAKE_SOURCE_DIR}/src/transport
 )
 add_test(NAME test_transport COMMAND test_transport)
 
@@ -28,5 +29,6 @@ target_compile_definitions(test_serial PRIVATE _GNU_SOURCE)
 target_include_directories(test_serial PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/src/transport/include
+    ${CMAKE_SOURCE_DIR}/src/transport
 )
 add_test(NAME test_serial COMMAND test_serial)
