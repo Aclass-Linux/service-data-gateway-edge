@@ -1,6 +1,8 @@
 # cmake/toolchain-armv7.cmake
 # armv7 交叉编译 — 从 .project.local.config 读取 COMPILE_PATH / SYSROOT_PATH
 
+include(${CMAKE_CURRENT_LIST_DIR}/toolchain-linux-common.cmake)
+
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR arm)
 

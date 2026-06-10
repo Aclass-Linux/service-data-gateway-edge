@@ -1,7 +1,3 @@
-if(NOT DEFINED USE_JSON_CONFIG)
-    set(USE_JSON_CONFIG ON)
-endif()
-
 if(USE_JSON_CONFIG)
     set(core_src config.c)
 else()

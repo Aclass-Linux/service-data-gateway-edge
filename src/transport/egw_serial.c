@@ -6,7 +6,6 @@
  * libuv 只负责 I/O 多路复用，不修改串口参数。
  */
 
-#define _GNU_SOURCE
 #include "egw_serial.h"
 
 #ifdef USE_JSON_CONFIG
@@ -19,7 +18,7 @@
 #include <fcntl.h>
 #include <termios.h>
 #include <unistd.h>
-#include <errno.h>
+
 
 /* ── 串口变种结构体（内部）────────────────────── */
 
@@ -61,7 +60,7 @@ static void egw_serial_on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_
 
     if (nread < 0) {
         if (tp->cbs.on_close) {
-            egw_err_t err = (nread == UV_EOF) ? EGW_OK : EGW_ERR_TP_READ;
+            egw_err_t err = (nread == UV_EOF) ? EGW_OK : EGW_ERR_READ;
             tp->cbs.on_close(tp, err);
         }
         free(buf->base);
@@ -87,7 +86,7 @@ static void egw_serial_on_write_done(uv_write_t *req, int status) {
     serial->writing = false;
 
     if (tp->cbs.on_write) {
-        egw_err_t err = (status == 0) ? EGW_OK : EGW_ERR_TP_WRITE;
+        egw_err_t err = (status == 0) ? EGW_OK : EGW_ERR_WRITE;
         tp->cbs.on_write(tp, err);
     }
 }
@@ -115,7 +114,7 @@ static void egw_serial_on_close_handle(uv_handle_t *handle) {
 static egw_err_t egw_serial_set_termios(int fd, const egw_serial_params_t *params) {
     struct termios tio;
     if (tcgetattr(fd, &tio) != 0) {
-        return EGW_ERR_TP_OPEN;
+        return EGW_ERR_OPEN;
     }
 
     cfmakeraw(&tio);
@@ -167,7 +166,7 @@ static egw_err_t egw_serial_set_termios(int fd, const egw_serial_params_t *param
     tio.c_cc[VTIME] = 0;
 
     if (tcsetattr(fd, TCSANOW, &tio) != 0) {
-        return EGW_ERR_TP_OPEN;
+        return EGW_ERR_OPEN;
     }
 
     tcflush(fd, TCIOFLUSH);
@@ -183,18 +182,18 @@ static egw_err_t egw_serial_do_open(egw_transport_t *tp) {
     serial->fd = open(serial->path_copy, O_RDWR | O_NOCTTY | O_NDELAY);
     if (serial->fd < 0) {
         if (tp->cbs.on_open) {
-            tp->cbs.on_open(tp, EGW_ERR_TP_OPEN);
+            tp->cbs.on_open(tp, EGW_ERR_OPEN);
         }
-        return EGW_ERR_TP_OPEN;
+        return EGW_ERR_OPEN;
     }
 
     if (fcntl(serial->fd, F_SETFL, 0) != 0) {
         close(serial->fd);
         serial->fd = -1;
         if (tp->cbs.on_open) {
-            tp->cbs.on_open(tp, EGW_ERR_TP_OPEN);
+            tp->cbs.on_open(tp, EGW_ERR_OPEN);
         }
-        return EGW_ERR_TP_OPEN;
+        return EGW_ERR_OPEN;
     }
 
     egw_err_t terr = egw_serial_set_termios(serial->fd, &serial->params);
@@ -212,9 +211,9 @@ static egw_err_t egw_serial_do_open(egw_transport_t *tp) {
         close(serial->fd);
         serial->fd = -1;
         if (tp->cbs.on_open) {
-            tp->cbs.on_open(tp, EGW_ERR_TP_OPEN);
+            tp->cbs.on_open(tp, EGW_ERR_OPEN);
         }
-        return EGW_ERR_TP_OPEN;
+        return EGW_ERR_OPEN;
     }
 
     rc = uv_pipe_open(&serial->pipe, serial->fd);
@@ -223,9 +222,9 @@ static egw_err_t egw_serial_do_open(egw_transport_t *tp) {
         close(serial->fd);
         serial->fd = -1;
         if (tp->cbs.on_open) {
-            tp->cbs.on_open(tp, EGW_ERR_TP_OPEN);
+            tp->cbs.on_open(tp, EGW_ERR_OPEN);
         }
-        return EGW_ERR_TP_OPEN;
+        return EGW_ERR_OPEN;
     }
 
     serial->pipe.data = serial;
@@ -238,9 +237,9 @@ static egw_err_t egw_serial_do_open(egw_transport_t *tp) {
         serial->fd = -1;
         serial->opened = false;
         if (tp->cbs.on_open) {
-            tp->cbs.on_open(tp, EGW_ERR_TP_READ);
+            tp->cbs.on_open(tp, EGW_ERR_READ);
         }
-        return EGW_ERR_TP_READ;
+        return EGW_ERR_READ;
     }
 
     if (tp->cbs.on_open) {
@@ -252,7 +251,7 @@ static egw_err_t egw_serial_do_open(egw_transport_t *tp) {
 
 static egw_err_t egw_serial_do_close(egw_transport_t *tp) {
     if (!tp) {
-        return EGW_ERR_HANDLER;
+        return EGW_ERR_INVAL;
     }
 
     egw_serial_t *serial = (egw_serial_t *)tp;
@@ -269,21 +268,21 @@ static egw_err_t egw_serial_do_close(egw_transport_t *tp) {
 
 static egw_err_t egw_serial_do_write(egw_transport_t *tp, const void *buf, size_t len) {
     if (!tp || !buf || len == 0) {
-        return EGW_ERR_HANDLER;
+        return EGW_ERR_INVAL;
     }
 
     egw_serial_t *serial = (egw_serial_t *)tp;
     if (!serial->opened) {
-        return EGW_ERR_TP_CLOSE;
+        return EGW_ERR_CLOSE;
     }
 
     if (serial->writing) {
-        return EGW_ERR_TP_BUSY;
+        return EGW_ERR_BUSY;
     }
 
     serial->write_buf = malloc(len);
     if (!serial->write_buf) {
-        return EGW_ERR_HANDLER;
+        return EGW_ERR_INVAL;
     }
 
     memcpy(serial->write_buf, buf, len);
@@ -296,7 +295,7 @@ static egw_err_t egw_serial_do_write(egw_transport_t *tp, const void *buf, size_
         free(serial->write_buf);
         serial->write_buf = NULL;
         serial->writing = false;
-        return EGW_ERR_TP_WRITE;
+        return EGW_ERR_WRITE;
     }
 
     return EGW_OK;
@@ -308,15 +307,15 @@ egw_err_t egw_serial_open(egw_transport_t **tp,
                            const egw_serial_params_t *params,
                            const egw_transport_cbs_t *cbs) {
     if (!tp || !params || !cbs) {
-        return EGW_ERR_HANDLER;
+        return EGW_ERR_INVAL;
     }
     if (!params->path) {
-        return EGW_ERR_HANDLER;
+        return EGW_ERR_INVAL;
     }
 
     egw_serial_t *serial = calloc(1, sizeof(egw_serial_t));
     if (!serial) {
-        return EGW_ERR_HANDLER;
+        return EGW_ERR_INVAL;
     }
 
     serial->base.ops = &egw_serial_ops;
@@ -330,7 +329,7 @@ egw_err_t egw_serial_open(egw_transport_t **tp,
     serial->path_copy = strdup(params->path);
     if (!serial->path_copy) {
         free(serial);
-        return EGW_ERR_HANDLER;
+        return EGW_ERR_INVAL;
     }
 
     serial->params.path      = serial->path_copy;
@@ -350,31 +349,39 @@ egw_err_t egw_serial_from_config(egw_transport_t **tp,
                                   egw_conf_t *cfg, const char *path,
                                   const egw_transport_cbs_t *cbs) {
     if (!tp || !cfg || !path || !cbs) {
-        return EGW_ERR_HANDLER;
+        return EGW_ERR_INVAL;
     }
 
     egw_conf_enter(cfg, path);
 
     egw_serial_params_t params;
-    params.path      = EGW_CONF_STR(cfg, "/path", NULL);
-    params.baud      = EGW_CONF_INT(cfg, "/baud", 9600);
+    char *path_str, *parity_str;
+    egw_conf_get_string(cfg, "/path", &path_str, NULL);
+    egw_conf_get_string(cfg, "/parity", &parity_str, "N");
+    params.path      = path_str;
+    params.parity    = parity_str[0];
+    params.baud      = 9600;
+    params.data_bits = 8;
+    params.stop_bits = 1;
+    egw_conf_get_int(cfg, "/baud",      &params.baud, 9600);
+    egw_conf_get_int(cfg, "/data_bits", &params.data_bits, 8);
+    egw_conf_get_int(cfg, "/stop_bits", &params.stop_bits, 1);
 
-    const char *parity_str = EGW_CONF_STR(cfg, "/parity", "N");
-    params.parity    = parity_str ? parity_str[0] : 'N';
-
-    params.data_bits = EGW_CONF_INT(cfg, "/data_bits", 8);
-    params.stop_bits = EGW_CONF_INT(cfg, "/stop_bits", 1);
-
-    egw_conf_leave(cfg);
+    egw_conf_enter(cfg, "");
 
     if (!params.path) {
+        free(path_str);
+        free(parity_str);
         if (cbs->on_open) {
-            cbs->on_open(NULL, EGW_ERR_MISSING_KEY);
+            cbs->on_open(NULL, EGW_ERR_NOTFOUND);
         }
-        return EGW_ERR_MISSING_KEY;
+        return EGW_ERR_NOTFOUND;
     }
 
-    return egw_serial_open(tp, &params, cbs);
+    egw_err_t err = egw_serial_open(tp, &params, cbs);
+    free(path_str);
+    free(parity_str);
+    return err;
 }
 
 #endif

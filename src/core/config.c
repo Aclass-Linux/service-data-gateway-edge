@@ -4,6 +4,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+
 
 
 struct egw_conf {
@@ -15,31 +19,34 @@ struct egw_conf {
 
 egw_err_t egw_conf_load(const char *path, egw_conf_t **out) {
     if (!path || !out) {
-        return EGW_ERR_HANDLER;
+        return EGW_ERR_INVAL;
     }
 
-    FILE *fp = fopen(path, "rb");
-    if (!fp) {
-        return EGW_ERR_FILE_NOT_FOUND;
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        return EGW_ERR_NOTFOUND;
     }
 
-    fseek(fp, 0, SEEK_END);
-    long len = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-
-    if (len <= 0) {
-        fclose(fp);
+    struct stat st;
+    if (fstat(fd, &st) != 0 || st.st_size == 0) {
+        close(fd);
         return EGW_ERR_PARSE;
     }
 
-    char *buf = malloc((size_t)len + 1);
+    char *buf = malloc((size_t)st.st_size + 1);
     if (!buf) {
-        fclose(fp);
-        return EGW_ERR_HANDLER;
+        close(fd);
+        return EGW_ERR_INVAL;
     }
 
-    size_t nread = fread(buf, 1, (size_t)len, fp);
-    fclose(fp);
+    ssize_t nread = read(fd, buf, (size_t)st.st_size);
+    close(fd);
+
+    if (nread < 0) {
+        free(buf);
+        return EGW_ERR_PARSE;
+    }
+
     buf[nread] = '\0';
 
     cJSON *root = cJSON_Parse(buf);
@@ -56,7 +63,7 @@ egw_err_t egw_conf_load(const char *path, egw_conf_t **out) {
     egw_conf_t *cfg = malloc(sizeof(egw_conf_t));
     if (!cfg) {
         cJSON_Delete(root);
-        return EGW_ERR_HANDLER;
+        return EGW_ERR_INVAL;
     }
 
     cfg->root = root;
@@ -79,82 +86,83 @@ void egw_conf_free(egw_conf_t *cfg) {
 
 egw_err_t egw_conf_enter(egw_conf_t *cfg, const char *key_path) {
     if (!cfg || !key_path) {
-        return EGW_ERR_HANDLER;
+        return EGW_ERR_INVAL;
     }
 
     cJSON *item = cJSONUtils_GetPointer(cfg->root, key_path);
     if (!item) {
-        return EGW_ERR_MISSING_KEY;
+        return EGW_ERR_NOTFOUND;
     }
 
     cfg->cur = item;
     return EGW_OK;
 }
 
-void egw_conf_leave(egw_conf_t *cfg) {
-    if (cfg) {
-        cfg->cur = cfg->root;
-    }
-}
-
 /* ── 取值函数 ────────────────────────────────────── */
 
-const char *egw_conf_get_string(egw_conf_t *cfg, const char *key_path, const char *def) {
-    if (!cfg) {
-        return def;
+egw_err_t egw_conf_get_string(egw_conf_t *cfg, const char *key_path,
+                               char **out, const char *def) {
+    if (!cfg || !out) {
+        return EGW_ERR_INVAL;
     }
 
     cJSON *item = cJSONUtils_GetPointer(cfg->cur, key_path);
-    if (!item) {
-        return def;
+    if (!item || !cJSON_IsString(item)) {
+        *out = def ? strdup(def) : NULL;
+        return EGW_ERR_NOTFOUND;
     }
-    if (!cJSON_IsString(item)) {
-        return def;
+
+    *out = strdup(cJSON_GetStringValue(item));
+    if (!*out) {
+        return EGW_ERR_INVAL;
     }
-    return cJSON_GetStringValue(item);
+    return EGW_OK;
 }
 
-int egw_conf_get_int(egw_conf_t *cfg, const char *key_path, int def) {
-    if (!cfg) {
-        return def;
+egw_err_t egw_conf_get_int(egw_conf_t *cfg, const char *key_path,
+                            int32_t *out, int32_t def) {
+    if (!cfg || !out) {
+        return EGW_ERR_INVAL;
     }
 
     cJSON *item = cJSONUtils_GetPointer(cfg->cur, key_path);
-    if (!item) {
-        return def;
+    if (!item || !cJSON_IsNumber(item)) {
+        *out = def;
+        return EGW_ERR_NOTFOUND;
     }
-    if (!cJSON_IsNumber(item)) {
-        return def;
-    }
-    return (int)cJSON_GetNumberValue(item);
+
+    *out = (int32_t)cJSON_GetNumberValue(item);
+    return EGW_OK;
 }
 
-bool egw_conf_get_bool(egw_conf_t *cfg, const char *key_path, bool def) {
-    if (!cfg) {
-        return def;
+egw_err_t egw_conf_get_bool(egw_conf_t *cfg, const char *key_path,
+                             bool *out, bool def) {
+    if (!cfg || !out) {
+        return EGW_ERR_INVAL;
     }
 
     cJSON *item = cJSONUtils_GetPointer(cfg->cur, key_path);
-    if (!item) {
-        return def;
+    if (!item || !cJSON_IsBool(item)) {
+        *out = def;
+        return EGW_ERR_NOTFOUND;
     }
-    if (!cJSON_IsBool(item)) {
-        return def;
-    }
-    return cJSON_IsTrue(item);
+
+    *out = cJSON_IsTrue(item);
+    return EGW_OK;
 }
 
-int egw_conf_array_length(egw_conf_t *cfg, const char *key_path, int def) {
-    if (!cfg) {
-        return def;
+egw_err_t egw_conf_array_length(egw_conf_t *cfg, const char *key_path,
+                                 int32_t *out, int32_t def) {
+    if (!cfg || !out) {
+        return EGW_ERR_INVAL;
     }
 
     cJSON *item = cJSONUtils_GetPointer(cfg->cur, key_path);
-    if (!item) {
-        return def;
+    if (!item || !cJSON_IsArray(item)) {
+        *out = def;
+        return EGW_ERR_NOTFOUND;
     }
-    if (!cJSON_IsArray(item)) {
-        return def;
-    }
-    return cJSON_GetArraySize(item);
+
+    *out = (int32_t)cJSON_GetArraySize(item);
+    return EGW_OK;
 }

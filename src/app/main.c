@@ -1,43 +1,61 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "config.h"
 
 static void print_config(egw_conf_t *cfg) {
+    char *sval;
+    int32_t intval;
+
     printf("[MQTT]\n");
-    printf("  broker = %s\n", EGW_CONF_STR(cfg, "/mqtt/broker", "(null)"));
-    printf("  port = %d\n",   EGW_CONF_INT(cfg, "/mqtt/port", 0));
-    printf("  topic_prefix = %s\n", EGW_CONF_STR(cfg, "/mqtt/topic_prefix", "(null)"));
+    egw_conf_get_string(cfg, "/mqtt/broker", &sval, "(null)");
+    printf("  broker = %s\n", sval);
+    free(sval);
+    egw_conf_get_int(cfg, "/mqtt/port", &intval, 0);
+    printf("  port = %d\n", intval);
+    egw_conf_get_string(cfg, "/mqtt/topic_prefix", &sval, "(null)");
+    printf("  topic_prefix = %s\n", sval);
+    free(sval);
 
     printf("\n[MODBUS]\n");
     printf("  serial_ports:\n");
 
-    int n_ports = EGW_CONF_ARR_LEN(cfg, "/modbus/serial_ports", 0);
+    int32_t n_ports;
+    egw_conf_array_length(cfg, "/modbus/serial_ports", &n_ports, 0);
     if (n_ports <= 0) {
         return;
     }
-    for (int p = 0; p < n_ports; p++) {
+    for (int32_t p = 0; p < n_ports; p++) {
         char port_path[64];
         snprintf(port_path, sizeof(port_path), "/modbus/serial_ports/%d", p);
 
         egw_conf_enter(cfg, port_path);
-        printf("    [%s]\n", EGW_CONF_STR(cfg, "/path", "?"));
-        printf("      baud = %d\n", EGW_CONF_INT(cfg, "/baud", 9600));
-        printf("      parity = %s\n", EGW_CONF_STR(cfg, "/parity", "N"));
+        egw_conf_get_string(cfg, "/path", &sval, "?");
+        printf("    [%s]\n", sval);
+        free(sval);
+        egw_conf_get_int(cfg, "/baud", &intval, 9600);
+        printf("      baud = %d\n", intval);
+        egw_conf_get_string(cfg, "/parity", &sval, "N");
+        printf("      parity = %s\n", sval);
+        free(sval);
 
         printf("      devices:\n");
 
-        int n_devs = EGW_CONF_ARR_LEN(cfg, "/devices", 0);
-        for (int d = 0; d < n_devs; d++) {
+        int32_t n_devs;
+        egw_conf_array_length(cfg, "/devices", &n_devs, 0);
+        for (int32_t d = 0; d < n_devs; d++) {
             char dev_path[128];
             snprintf(dev_path, sizeof(dev_path), "/modbus/serial_ports/%d/devices/%d", p, d);
 
             egw_conf_enter(cfg, dev_path);
-            printf("        [ID=%d]\n", EGW_CONF_INT(cfg, "/slave_id", 0));
-            printf("          poll_interval = %d\n", EGW_CONF_INT(cfg, "/poll_interval", 5));
-            egw_conf_leave(cfg);
+            egw_conf_get_int(cfg, "/slave_id", &intval, 0);
+            printf("        [ID=%d]\n", intval);
+            egw_conf_get_int(cfg, "/poll_interval", &intval, 5);
+            printf("          poll_interval = %d\n", intval);
+            egw_conf_enter(cfg, "");
         }
 
-        egw_conf_leave(cfg);
+        egw_conf_enter(cfg, "");
     }
 }
 

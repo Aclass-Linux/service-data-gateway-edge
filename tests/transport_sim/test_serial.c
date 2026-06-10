@@ -20,21 +20,21 @@ static void test_serial_open_null_tp(void) {
     egw_serial_params_t params = {"/dev/null", 9600, 'N', 8, 1};
     egw_transport_cbs_t cbs = {NULL, NULL, NULL, NULL, NULL};
     egw_err_t err = egw_serial_open(NULL, &params, &cbs);
-    TEST_ASSERT_EQUAL_INT(EGW_ERR_HANDLER, err);
+    TEST_ASSERT_EQUAL_INT(EGW_ERR_INVAL, err);
 }
 
 static void test_serial_open_null_params(void) {
     egw_transport_t *tp = NULL;
     egw_transport_cbs_t cbs = {NULL, NULL, NULL, NULL, NULL};
     egw_err_t err = egw_serial_open(&tp, NULL, &cbs);
-    TEST_ASSERT_EQUAL_INT(EGW_ERR_HANDLER, err);
+    TEST_ASSERT_EQUAL_INT(EGW_ERR_INVAL, err);
 }
 
 static void test_serial_open_null_cbs(void) {
     egw_transport_t *tp = NULL;
     egw_serial_params_t params = {"/dev/null", 9600, 'N', 8, 1};
     egw_err_t err = egw_serial_open(&tp, &params, NULL);
-    TEST_ASSERT_EQUAL_INT(EGW_ERR_HANDLER, err);
+    TEST_ASSERT_EQUAL_INT(EGW_ERR_INVAL, err);
 }
 
 static void test_serial_open_null_path(void) {
@@ -42,7 +42,7 @@ static void test_serial_open_null_path(void) {
     egw_serial_params_t params = {NULL, 9600, 'N', 8, 1};
     egw_transport_cbs_t cbs = {NULL, NULL, NULL, NULL, NULL};
     egw_err_t err = egw_serial_open(&tp, &params, &cbs);
-    TEST_ASSERT_EQUAL_INT(EGW_ERR_HANDLER, err);
+    TEST_ASSERT_EQUAL_INT(EGW_ERR_INVAL, err);
 }
 
 /* ── main ──────────────────────────────────────── */

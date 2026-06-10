@@ -55,26 +55,26 @@ void tearDown(void) {
 
 static void test_transport_close_null(void) {
     egw_err_t err = egw_transport_close(NULL);
-    TEST_ASSERT_EQUAL_INT(EGW_ERR_HANDLER, err);
+    TEST_ASSERT_EQUAL_INT(EGW_ERR_INVAL, err);
 }
 
 static void test_transport_write_null_tp(void) {
     egw_err_t err = egw_transport_write(NULL, "data", 4);
-    TEST_ASSERT_EQUAL_INT(EGW_ERR_HANDLER, err);
+    TEST_ASSERT_EQUAL_INT(EGW_ERR_INVAL, err);
 }
 
 static void test_transport_write_null_buf(void) {
     egw_transport_t tp = {0};
     tp.ops = &mock_ops;
     egw_err_t err = egw_transport_write(&tp, NULL, 4);
-    TEST_ASSERT_EQUAL_INT(EGW_ERR_HANDLER, err);
+    TEST_ASSERT_EQUAL_INT(EGW_ERR_INVAL, err);
 }
 
 static void test_transport_write_zero_len(void) {
     egw_transport_t tp = {0};
     tp.ops = &mock_ops;
     egw_err_t err = egw_transport_write(&tp, "data", 0);
-    TEST_ASSERT_EQUAL_INT(EGW_ERR_HANDLER, err);
+    TEST_ASSERT_EQUAL_INT(EGW_ERR_INVAL, err);
 }
 
 /* ── vtable 分发 ────────────────────────────────── */
@@ -103,14 +103,14 @@ static void test_transport_close_null_ops(void) {
     egw_transport_t tp = {0};
     tp.ops = NULL;
     egw_err_t err = egw_transport_close(&tp);
-    TEST_ASSERT_EQUAL_INT(EGW_ERR_HANDLER, err);
+    TEST_ASSERT_EQUAL_INT(EGW_ERR_INVAL, err);
 }
 
 static void test_transport_write_null_ops(void) {
     egw_transport_t tp = {0};
     tp.ops = NULL;
     egw_err_t err = egw_transport_write(&tp, "data", 4);
-    TEST_ASSERT_EQUAL_INT(EGW_ERR_HANDLER, err);
+    TEST_ASSERT_EQUAL_INT(EGW_ERR_INVAL, err);
 }
 
 /* ── main ──────────────────────────────────────── */

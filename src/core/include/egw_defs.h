@@ -16,27 +16,26 @@
 /**
  * @brief 全局错误码
  *
- * 所有模块共享同一套错误码。0 = 成功，负值 = 错误。
- * 顺序编号，新增错误码在末尾追加，保持现有值不变。
- * 模块归属通过宏命名前缀区分（如 EGW_ERR_MQTT_*）。
+ * 0 = 成功，负值 = 错误。顺序编号，新增在末尾追加。
+ * 命名描述错误性质，不体现模块归属。
  */
 typedef int32_t egw_err_t;
 
-#define EGW_OK                  (0)
+#define EGW_OK          (0)
 
-#define EGW_ERR_FILE_NOT_FOUND  (-1)
-#define EGW_ERR_PARSE           (-2)
-#define EGW_ERR_MISSING_KEY     (-3)
-#define EGW_ERR_REGISTRY_FULL   (-4)
-#define EGW_ERR_HANDLER         (-5)
+/* ── 通用错误码 ────────────────────────────────── */
+#define EGW_ERR_NOTFOUND    (-1)   /* 文件/key/路径/资源不存在 */
+#define EGW_ERR_PARSE       (-2)   /* JSON 解析失败、类型不匹配 */
+#define EGW_ERR_INVAL       (-3)   /* 空指针、越界、无效参数 */
+#define EGW_ERR_NOMEM       (-4)   /* 内存分配失败、注册表满 */
 
-/* ── Transport 错误码 ──────────────────────────── */
-#define EGW_ERR_TP_OPEN         (-10)
-#define EGW_ERR_TP_CLOSE        (-11)
-#define EGW_ERR_TP_WRITE        (-12)
-#define EGW_ERR_TP_READ         (-13)
-#define EGW_ERR_TP_BUSY         (-14)
-#define EGW_ERR_TP_TIMEOUT      (-15)
+/* ── I/O 错误码（任何模块可用）─────────────────── */
+#define EGW_ERR_OPEN        (-10)  /* 打开失败 */
+#define EGW_ERR_CLOSE       (-11)  /* 关闭失败 */
+#define EGW_ERR_WRITE       (-12)  /* 写入失败 */
+#define EGW_ERR_READ        (-13)  /* 读取失败 */
+#define EGW_ERR_BUSY        (-14)  /* 忙 */
+#define EGW_ERR_TIMEOUT     (-15)  /* 超时 */
 
 
 /**

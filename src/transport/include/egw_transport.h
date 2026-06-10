@@ -75,7 +75,7 @@ struct egw_transport {
  * 传入 NULL 为无操作。
  *
  * @return EGW_OK           已发起关闭
- * @return EGW_ERR_HANDLER  tp 为 NULL
+ * @return EGW_ERR_INVAL  tp 为 NULL
  */
 egw_err_t egw_transport_close(egw_transport_t *tp);
 
@@ -89,8 +89,8 @@ egw_err_t egw_transport_close(egw_transport_t *tp);
  * @param[in] buf  待写入数据
  * @param[in] len  数据长度
  * @return EGW_OK           已发起写入
- * @return EGW_ERR_HANDLER  tp 或 buf 为 NULL，len 为 0
- * @return EGW_ERR_TP_BUSY  上一次写入尚未完成
+ * @return EGW_ERR_INVAL  tp 或 buf 为 NULL，len 为 0
+ * @return EGW_ERR_BUSY  上一次写入尚未完成
  */
 egw_err_t egw_transport_write(egw_transport_t *tp, const void *buf, size_t len);
 
