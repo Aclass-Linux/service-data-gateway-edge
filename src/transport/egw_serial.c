@@ -1,12 +1,5 @@
-/**
- * @file egw_serial.c
- * @brief Transport 串口变种 —— 异步 UART 收发
- *
- * 基于 libuv uv_pipe 实现。termios 由 egw_serial_set_termios 管理，
- * libuv 只负责 I/O 多路复用，不修改串口参数。
- */
-
 #include "egw_transport.h"
+#include "egw_serial.h"
 #include "egw_transport_internal.h"
 
 #include <uv.h>
@@ -16,93 +9,76 @@
 #include <termios.h>
 #include <unistd.h>
 
-
-/* ── 串口变种结构体（内部）────────────────────── */
-
-typedef struct egw_serial {
-    egw_transport_t base;
+struct egw_serial {
+    struct egw_transport_header hdr;
     uv_pipe_t       pipe;
     uv_write_t      write_req;
     unsigned char  *write_buf;
     char           *path_copy;
     int             fd;
-    bool            opened;
     bool            writing;
     egw_serial_params_t params;
-} egw_serial_t;
-
-/* ── vtable 前向声明 ────────────────────────────── */
-
-static egw_err_t egw_serial_do_open(egw_transport_t *tp);
-static egw_err_t egw_serial_do_close(egw_transport_t *tp);
-static egw_err_t egw_serial_do_write(egw_transport_t *tp, const void *buf, size_t len);
-
-static void egw_serial_destroy(egw_transport_t *tp);
-
-static const struct egw_transport_ops egw_serial_ops = {
-    .open    = egw_serial_do_open,
-    .close   = egw_serial_do_close,
-    .write   = egw_serial_do_write,
-    .destroy = egw_serial_destroy,
 };
 
 /* ── libuv 回调 ──────────────────────────────── */
 
-static void egw_serial_on_alloc(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
+static void egw_serial_on_alloc(uv_handle_t *handle, size_t suggested_size,
+                                 uv_buf_t *buf) {
     (void)handle;
     buf->base = malloc(suggested_size);
     buf->len = (buf->base) ? (unsigned long)suggested_size : 0;
 }
 
-static void egw_serial_on_read(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
-    egw_serial_t *serial = (egw_serial_t *)stream->data;
-    egw_transport_t *tp = &serial->base;
+static void egw_serial_on_read(uv_stream_t *stream, ssize_t nread,
+                                const uv_buf_t *buf) {
+    struct egw_serial *serial = (struct egw_serial *)stream->data;
+    struct egw_transport_header *hdr = &serial->hdr;
 
     if (nread < 0) {
-        if (tp->cbs.on_close) {
+        if (hdr->cbs.on_close) {
             egw_err_t err = (nread == UV_EOF) ? EGW_OK : EGW_ERR_READ;
-            tp->cbs.on_close(tp, err);
+            hdr->cbs.on_close(hdr, err);
         }
         free(buf->base);
-        uv_read_stop(stream);
-        uv_close((uv_handle_t *)stream, NULL);
-        serial->opened = false;
+        hdr->close_fn(hdr);
         return;
     }
 
-    if (nread > 0 && tp->cbs.on_data) {
-        tp->cbs.on_data(tp, buf->base, (size_t)nread);
+    if (nread > 0 && hdr->cbs.on_data) {
+        hdr->cbs.on_data(hdr, buf->base, (size_t)nread);
     }
 
     free(buf->base);
 }
 
 static void egw_serial_on_write_done(uv_write_t *req, int status) {
-    egw_serial_t *serial = (egw_serial_t *)req->data;
-    egw_transport_t *tp = &serial->base;
+    struct egw_serial *serial = (struct egw_serial *)req->data;
+    struct egw_transport_header *hdr = &serial->hdr;
 
     free(serial->write_buf);
     serial->write_buf = NULL;
     serial->writing = false;
 
-    if (tp->cbs.on_write) {
+    if (hdr->cbs.on_write) {
         egw_err_t err = (status == 0) ? EGW_OK : EGW_ERR_WRITE;
-        tp->cbs.on_write(tp, err);
+        hdr->cbs.on_write(hdr, err);
     }
 }
 
 static void egw_serial_on_close_handle(uv_handle_t *handle) {
-    egw_serial_t *serial = (egw_serial_t *)handle->data;
-    egw_transport_t *tp = &serial->base;
+    struct egw_serial *serial = (struct egw_serial *)handle->data;
+    struct egw_transport_header *hdr = &serial->hdr;
+
+    egw_transport_remove(hdr->inst, hdr);
 
     if (serial->fd >= 0) {
         close(serial->fd);
         serial->fd = -1;
     }
-    serial->opened = false;
+    serial->hdr.opened = false;
 
-    if (tp->cbs.on_close) {
-        tp->cbs.on_close(tp, EGW_OK);
+    if (hdr->cbs.on_close) {
+        hdr->cbs.on_close(hdr, EGW_OK);
     }
 
     free(serial->path_copy);
@@ -111,7 +87,8 @@ static void egw_serial_on_close_handle(uv_handle_t *handle) {
 
 /* ── termios 配置 ────────────────────────────── */
 
-static egw_err_t egw_serial_set_termios(int fd, const egw_serial_params_t *params) {
+static egw_err_t egw_serial_set_termios(int fd,
+                                         const egw_serial_params_t *params) {
     struct termios tio;
     if (tcgetattr(fd, &tio) != 0) {
         return EGW_ERR_OPEN;
@@ -173,16 +150,16 @@ static egw_err_t egw_serial_set_termios(int fd, const egw_serial_params_t *param
     return EGW_OK;
 }
 
-/* ── 打开（异步发起 I/O）─────────────────────── */
+/* ── 打开 ────────────────────────────────────── */
 
-static egw_err_t egw_serial_do_open(egw_transport_t *tp) {
-    egw_serial_t *serial = (egw_serial_t *)tp;
-    uv_loop_t *loop = &serial->base.inst->loop;
+static egw_err_t egw_serial_open_fn(struct egw_transport_header *hdr) {
+    struct egw_serial *serial = (struct egw_serial *)hdr;
+    uv_loop_t *loop = &hdr->inst->loop;
 
     serial->fd = open(serial->path_copy, O_RDWR | O_NOCTTY | O_NDELAY);
     if (serial->fd < 0) {
-        if (tp->cbs.on_open) {
-            tp->cbs.on_open(tp, EGW_ERR_OPEN);
+        if (hdr->cbs.on_open) {
+            hdr->cbs.on_open(hdr, EGW_ERR_OPEN);
         }
         return EGW_ERR_OPEN;
     }
@@ -190,8 +167,8 @@ static egw_err_t egw_serial_do_open(egw_transport_t *tp) {
     if (fcntl(serial->fd, F_SETFL, 0) != 0) {
         close(serial->fd);
         serial->fd = -1;
-        if (tp->cbs.on_open) {
-            tp->cbs.on_open(tp, EGW_ERR_OPEN);
+        if (hdr->cbs.on_open) {
+            hdr->cbs.on_open(hdr, EGW_ERR_OPEN);
         }
         return EGW_ERR_OPEN;
     }
@@ -200,8 +177,8 @@ static egw_err_t egw_serial_do_open(egw_transport_t *tp) {
     if (terr != EGW_OK) {
         close(serial->fd);
         serial->fd = -1;
-        if (tp->cbs.on_open) {
-            tp->cbs.on_open(tp, terr);
+        if (hdr->cbs.on_open) {
+            hdr->cbs.on_open(hdr, terr);
         }
         return terr;
     }
@@ -210,8 +187,8 @@ static egw_err_t egw_serial_do_open(egw_transport_t *tp) {
     if (rc != 0) {
         close(serial->fd);
         serial->fd = -1;
-        if (tp->cbs.on_open) {
-            tp->cbs.on_open(tp, EGW_ERR_OPEN);
+        if (hdr->cbs.on_open) {
+            hdr->cbs.on_open(hdr, EGW_ERR_OPEN);
         }
         return EGW_ERR_OPEN;
     }
@@ -221,58 +198,58 @@ static egw_err_t egw_serial_do_open(egw_transport_t *tp) {
         uv_close((uv_handle_t *)&serial->pipe, NULL);
         close(serial->fd);
         serial->fd = -1;
-        if (tp->cbs.on_open) {
-            tp->cbs.on_open(tp, EGW_ERR_OPEN);
+        if (hdr->cbs.on_open) {
+            hdr->cbs.on_open(hdr, EGW_ERR_OPEN);
         }
         return EGW_ERR_OPEN;
     }
 
     serial->pipe.data = serial;
-    serial->opened = true;
+    hdr->opened = true;
 
-    rc = uv_read_start((uv_stream_t *)&serial->pipe, egw_serial_on_alloc, egw_serial_on_read);
+    rc = uv_read_start((uv_stream_t *)&serial->pipe,
+                        egw_serial_on_alloc, egw_serial_on_read);
     if (rc != 0) {
         uv_close((uv_handle_t *)&serial->pipe, NULL);
         close(serial->fd);
         serial->fd = -1;
-        serial->opened = false;
-        if (tp->cbs.on_open) {
-            tp->cbs.on_open(tp, EGW_ERR_READ);
+        hdr->opened = false;
+        if (hdr->cbs.on_open) {
+            hdr->cbs.on_open(hdr, EGW_ERR_READ);
         }
         return EGW_ERR_READ;
     }
 
-    if (tp->cbs.on_open) {
-        tp->cbs.on_open(tp, EGW_OK);
+    if (hdr->cbs.on_open) {
+        hdr->cbs.on_open(hdr, EGW_OK);
     }
 
     return EGW_OK;
 }
 
-static egw_err_t egw_serial_do_close(egw_transport_t *tp) {
-    if (!tp) {
-        return EGW_ERR_INVAL;
-    }
+/* ── 关闭 ────────────────────────────────────── */
 
-    egw_serial_t *serial = (egw_serial_t *)tp;
-    if (!serial->opened) {
-        return EGW_OK;
+static void egw_serial_close_fn(struct egw_transport_header *hdr) {
+    struct egw_serial *serial = (struct egw_serial *)hdr;
+
+    if (!hdr->opened) {
+        return;
     }
 
     uv_read_stop((uv_stream_t *)&serial->pipe);
-    serial->opened = false;
+    hdr->opened = false;
     uv_close((uv_handle_t *)&serial->pipe, egw_serial_on_close_handle);
-
-    return EGW_OK;
 }
 
-static egw_err_t egw_serial_do_write(egw_transport_t *tp, const void *buf, size_t len) {
+/* ── 写 ──────────────────────────────────────── */
+
+egw_err_t egw_serial_write(egw_serial_t *tp, const void *buf, size_t len) {
     if (!tp || !buf || len == 0) {
         return EGW_ERR_INVAL;
     }
 
-    egw_serial_t *serial = (egw_serial_t *)tp;
-    if (!serial->opened) {
+    struct egw_serial *serial = (struct egw_serial *)tp;
+    if (!serial->hdr.opened) {
         return EGW_ERR_CLOSE;
     }
 
@@ -289,8 +266,10 @@ static egw_err_t egw_serial_do_write(egw_transport_t *tp, const void *buf, size_
     serial->writing = true;
     serial->write_req.data = serial;
 
-    uv_buf_t uvbuf = uv_buf_init((char *)serial->write_buf, (unsigned int)len);
-    int rc = uv_write(&serial->write_req, (uv_stream_t *)&serial->pipe, &uvbuf, 1, egw_serial_on_write_done);
+    uv_buf_t uvbuf = uv_buf_init((char *)serial->write_buf,
+                                  (unsigned int)len);
+    int rc = uv_write(&serial->write_req, (uv_stream_t *)&serial->pipe,
+                       &uvbuf, 1, egw_serial_on_write_done);
     if (rc != 0) {
         free(serial->write_buf);
         serial->write_buf = NULL;
@@ -301,51 +280,63 @@ static egw_err_t egw_serial_do_write(egw_transport_t *tp, const void *buf, size_
     return EGW_OK;
 }
 
-/* ── 销毁（仅自由分配，不开 libuv close）─────────────── */
+/* ── 关闭（公开 API）────────────────────────────── */
 
-static void egw_serial_destroy(egw_transport_t *tp) {
-    egw_serial_t *serial = (egw_serial_t *)tp;
-    free(serial->path_copy);
-    free(serial);
+egw_err_t egw_serial_close(egw_serial_t *tp) {
+    if (!tp || !((struct egw_serial *)tp)->hdr.inst) {
+        return EGW_ERR_INVAL;
+    }
+
+    struct egw_serial *serial = (struct egw_serial *)tp;
+    egw_serial_close_fn(&serial->hdr);
+    return EGW_OK;
 }
 
-/* ── 创建（注册）─────────────────────────────────── */
+/* ── 注册 ────────────────────────────────────── */
 
-egw_err_t egw_serial_create(egw_transport_t **tp,
-                             const egw_serial_params_t *params,
-                             const egw_transport_cbs_t *cbs) {
-    if (!tp || !params || !cbs) {
+egw_err_t egw_serial_register(egw_transport_instance_t *inst,
+                               const egw_serial_params_t *params,
+                               const egw_transport_cbs_t *cbs,
+                               egw_serial_t **tp) {
+    if (!inst || !params || !cbs || !tp) {
         return EGW_ERR_INVAL;
     }
     if (!params->path) {
         return EGW_ERR_INVAL;
     }
 
-    egw_serial_t *serial = calloc(1, sizeof(egw_serial_t));
+    struct egw_serial *serial = calloc(1, sizeof(*serial));
     if (!serial) {
         return EGW_ERR_NOMEM;
     }
 
-    serial->base.ops = &egw_serial_ops;
-    serial->base.id  = 0;
-    serial->base.seq = 0;
-    serial->base.cbs = *cbs;
-    serial->fd       = -1;
-    serial->opened   = false;
-    serial->writing  = false;
+    serial->hdr.open_fn  = egw_serial_open_fn;
+    serial->hdr.close_fn = egw_serial_close_fn;
+    serial->hdr.cbs      = *cbs;
+    serial->fd           = -1;
+    serial->writing      = false;
 
     serial->path_copy = strdup(params->path);
     if (!serial->path_copy) {
         free(serial);
-        return EGW_ERR_INVAL;
+        return EGW_ERR_NOMEM;
     }
 
     serial->params.path      = serial->path_copy;
     serial->params.baud      = params->baud;
     serial->params.parity    = params->parity;
-    serial->params.data_bits  = params->data_bits;
-    serial->params.stop_bits  = params->stop_bits;
+    serial->params.data_bits = params->data_bits;
+    serial->params.stop_bits = params->stop_bits;
 
-    *tp = &serial->base;
+    egw_err_t err = egw_transport_add(inst, &serial->hdr);
+    if (err != EGW_OK) {
+        free(serial->path_copy);
+        free(serial);
+        return err;
+    }
+
+    *tp = (egw_serial_t *)serial;
+    egw_transport_do_open(&serial->hdr);
+
     return EGW_OK;
 }

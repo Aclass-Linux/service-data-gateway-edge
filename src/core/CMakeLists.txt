@@ -1,11 +1,11 @@
+set(core_src egw_err.c)
 if(USE_JSON_CONFIG)
-    set(core_src config.c)
-else()
-    set(core_src)
+    list(APPEND core_src config.c)
 endif()
 
 set(core_inc 
     include/egw_defs.h
+    include/egw_err.inc
     include/config.h
 )
 

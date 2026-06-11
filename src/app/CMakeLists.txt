@@ -1,8 +1,8 @@
 set(APP_TARGET ${ACLASS_PROJECT_NAME})
 
-add_executable(${APP_TARGET} main.c)
+add_executable(${APP_TARGET} main.c gateway_app.c)
 
-target_link_libraries(${APP_TARGET} PRIVATE egw_core egw_transport)
+target_link_libraries(${APP_TARGET} PRIVATE egw_core egw_transport egw_protocol)
 
 set_target_properties(${APP_TARGET} PROPERTIES
     INSTALL_RPATH "\$ORIGIN/../lib"

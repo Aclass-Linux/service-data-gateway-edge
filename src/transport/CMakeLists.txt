@@ -5,6 +5,7 @@ set(tp_src
 
 set(tp_inc
     include/egw_transport.h
+    include/egw_serial.h
     include/egw_serial_params.h
 )
 
