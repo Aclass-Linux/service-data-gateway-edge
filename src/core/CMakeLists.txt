@@ -7,6 +7,7 @@ set(core_inc
     include/egw_defs.h
     include/egw_err.inc
     include/config.h
+    include/egw_fsm.h
 )
 
 add_library(egw_core STATIC)
