@@ -7,7 +7,7 @@ void tearDown(void) { }
 static void test_serial_write_null(void)
 {
     egw_err_t err = egw_serial_write(NULL, "data", 4);
-    TEST_ASSERT_EQUAL_INT(EGW_RETURN_CODE(ERR_INVALID_ARG), err);
+    TEST_ASSERT_EQUAL_INT(EGW_RET_CODE(ERR_INVALID_ARG), err);
 }
 
 static void test_serial_close_null(void)

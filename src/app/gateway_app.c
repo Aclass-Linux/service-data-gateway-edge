@@ -1,11 +1,8 @@
 #include "gateway_app.h"
+#include "gateway_engine.h"
 #include "config.h"
-#include "egw_loop.h"
 #include "egw_serial.h"
-#include "egw_fsm.h"
 #include "egw_protocol.h"
-#include "egw_runtime.h"
-#include "egw_bus.h"
 #include "egw_persist.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,135 +15,45 @@
 /* ── 事件信号 ───────────────────────────────────────── */
 
 enum {
-    EV_SIGINT,
+    EV_SIGINT      = EGW_USER_SIG,
     EV_TIMER_TICK,
 };
-
-/* ── 采集阶段 ────────────────────────────────────────── */
-
-typedef enum {
-    PHASE_SCHED_IDLE,
-    PHASE_TX_SEND,
-    PHASE_RX_WAITING,
-    PHASE_PROC_DONE,
-} app_phase_t;
 
 /* ── 端口上下文 ─────────────────────────────────────── */
 
 typedef struct {
     egw_serial_t        *tp;
-    egw_poll_t           poll;
+    uv_poll_t            poll;
     egw_proto_ctx_t     *proto;
-    int                  port_index;
     egw_serial_params_t  params;
+    uv_loop_t           *loop;
+    egw_bus_t           *bus;
     uint8_t              read_buf[READ_BUF_SIZE];
 } port_ctx_t;
 
+/* ── 前向声明 ───────────────────────────────────────── */
+
+static egw_state_t st_running(void *ctx, egw_event_t *ev);
+static egw_state_t st_shutdown(void *ctx, egw_event_t *ev);
+static void on_poll_cb(uv_poll_t *handle, int status, int events);
+static void do_sched_poll(void);
+static void do_poll_read(port_ctx_t *p);
+
 /* ── 应用上下文 ─────────────────────────────────────── */
 
-typedef struct app_ctx {
-    egw_fsm_t       fsm;
-    egw_runtime_t  *rt;
+typedef struct {
+    gw_engine_t     eng;          /* must be first (EGW_TRAN) */
     egw_conf_t     *cfg;
-    egw_timer_t     sched_timer;
-    egw_signal_t    sigint;
     egw_persist_t  *persist;
     port_ctx_t      ports[MAX_PORTS];
     int             port_count;
     int             cur_port;
-    app_phase_t     phase;
-} app_ctx_t;
+    int             phase;
+    uv_timer_t      sched_timer;
+    uv_signal_t     sigint;
+} app_t;
 
-/* ── 前向声明 ───────────────────────────────────────── */
-
-static void st_running(void *fsm_ptr, egw_event_t *ev);
-static void st_shutdown(void *fsm_ptr, egw_event_t *ev);
-static void do_sched_poll(app_ctx_t *ctx);
-static void do_poll_read(app_ctx_t *ctx, port_ctx_t *p);
-
-/* ── 总线回调 ───────────────────────────────────────── */
-
-static void on_bus_data(uint16_t device_id, uint32_t sig_id,
-                        egw_value_t value, void *data)
-{
-    (void)data;
-    printf("bus: dev=%u sig=%u val=%d\n",
-           (unsigned)device_id, (unsigned)sig_id, value.i32);
-}
-
-/* ── 回调：poll ─────────────────────────────────────── */
-
-static void on_poll_cb(egw_poll_t *poll, int status, int events, void *data)
-{
-    app_ctx_t  *ctx = data;
-    port_ctx_t *p   = NULL;
-
-    for (int i = 0; i < ctx->port_count; i++) {
-        if (&ctx->ports[i].poll == poll) {
-            p = &ctx->ports[i];
-            break;
-        }
-    }
-    if (!p) {
-        return;
-    }
-
-    if (status < 0) {
-        egw_serial_close(p->tp);
-        p->tp = NULL;
-        egw_poll_close(&p->poll);
-        {
-            egw_serial_t *new_tp = NULL;
-            egw_err_t err = egw_serial_open(&p->params, &new_tp);
-            p->tp = (err == EGW_OK) ? new_tp : NULL;
-        }
-        if (p->tp) {
-            egw_loop_t *loop = egw_runtime_loop(ctx->rt);
-            egw_poll_init(loop, &p->poll,
-                          egw_serial_get_fd(p->tp));
-            egw_poll_start(&p->poll, EGW_POLLIN, on_poll_cb, ctx);
-        }
-        return;
-    }
-
-    if (events & EGW_POLLIN) {
-        do_poll_read(ctx, p);
-    }
-
-    if (events & EGW_POLLOUT) {
-        egw_serial_flush(p->tp);
-    }
-
-    int want = EGW_POLLIN;
-    if (egw_serial_has_pending(p->tp)) {
-        want |= EGW_POLLOUT;
-    }
-    egw_poll_start(&p->poll, want, on_poll_cb, ctx);
-}
-
-/* ── 回调：timer ────────────────────────────────────── */
-
-static void on_timer_cb(egw_timer_t *timer, void *data)
-{
-    (void)timer;
-    app_ctx_t *ctx = data;
-
-    if (ctx->phase == PHASE_SCHED_IDLE) {
-        do_sched_poll(ctx);
-    }
-}
-
-/* ── 回调：signal ───────────────────────────────────── */
-
-static void on_sigint_cb(egw_signal_t *sig, int signum, void *data)
-{
-    (void)sig;
-    (void)signum;
-    app_ctx_t  *ctx = data;
-    egw_event_t ev  = { .sig = EV_SIGINT, .data = NULL };
-
-    egw_fsm_dispatch(&ctx->fsm, &ev);
-}
+static app_t *g_app;
 
 /* ── CRC-16 ──────────────────────────────────────────── */
 
@@ -170,18 +77,20 @@ static uint16_t modbus_crc16(const uint8_t *data, size_t len)
 
 /* ── 调度 ────────────────────────────────────────────── */
 
-static void do_sched_poll(app_ctx_t *ctx)
+static void do_sched_poll(void)
 {
-    if (ctx->port_count == 0) {
-        ctx->phase = PHASE_SCHED_IDLE;
+    app_t *app = g_app;
+
+    if (app->port_count == 0) {
+        app->phase = 0;
         return;
     }
 
-    ctx->cur_port = (ctx->cur_port + 1) % ctx->port_count;
-    port_ctx_t *p = &ctx->ports[ctx->cur_port];
+    app->cur_port = (app->cur_port + 1) % app->port_count;
+    port_ctx_t *p = &app->ports[app->cur_port];
 
     if (!p->tp) {
-        ctx->phase = PHASE_SCHED_IDLE;
+        app->phase = 0;
         return;
     }
 
@@ -193,18 +102,18 @@ static void do_sched_poll(app_ctx_t *ctx)
     egw_serial_write(p->tp, req, sizeof(req));
     egw_serial_flush(p->tp);
 
-    ctx->phase = PHASE_RX_WAITING;
+    app->phase = 1;
 
-    int want = EGW_POLLIN;
+    int want = UV_READABLE;
     if (egw_serial_has_pending(p->tp)) {
-        want |= EGW_POLLOUT;
+        want |= UV_WRITABLE;
     }
-    egw_poll_start(&p->poll, want, on_poll_cb, ctx);
+    uv_poll_start(&p->poll, want, on_poll_cb);
 }
 
 /* ── 读响应 ──────────────────────────────────────────── */
 
-static void do_poll_read(app_ctx_t *ctx, port_ctx_t *p)
+static void do_poll_read(port_ctx_t *p)
 {
     size_t    n   = 0;
     egw_err_t err;
@@ -213,19 +122,19 @@ static void do_poll_read(app_ctx_t *ctx, port_ctx_t *p)
     if (err != EGW_OK) {
         egw_serial_close(p->tp);
         p->tp = NULL;
-        egw_poll_close(&p->poll);
+        uv_close((uv_handle_t *)&p->poll, NULL);
         {
             egw_serial_t *new_tp = NULL;
             err = egw_serial_open(&p->params, &new_tp);
             p->tp = (err == EGW_OK) ? new_tp : NULL;
         }
         if (p->tp) {
-            egw_loop_t *loop = egw_runtime_loop(ctx->rt);
-            egw_poll_init(loop, &p->poll,
-                          egw_serial_get_fd(p->tp));
-            egw_poll_start(&p->poll, EGW_POLLIN, on_poll_cb, ctx);
+            uv_poll_init(p->loop, &p->poll,
+                         egw_serial_get_fd(p->tp));
+            uv_handle_set_data((uv_handle_t *)&p->poll, p);
+            uv_poll_start(&p->poll, UV_READABLE, on_poll_cb);
         }
-        ctx->phase = PHASE_SCHED_IDLE;
+        g_app->phase = 0;
         return;
     }
 
@@ -238,84 +147,126 @@ static void do_poll_read(app_ctx_t *ctx, port_ctx_t *p)
         size_t         frame_len = 0;
         const uint8_t *frame     = egw_proto_get_frame(p->proto, &frame_len);
         if (frame_len >= 3) {
-            egw_bus_t   *bus = egw_runtime_bus(ctx->rt);
             egw_value_t  val;
             val.raw = 0;
             if (frame_len >= 5) {
                 val.i32 = (int32_t)(((uint32_t)frame[3] << 8) | frame[4]);
             }
-            egw_bus_publish(bus, (uint16_t)ctx->cur_port,
-                            (uint32_t)p->port_index, val);
-            if (ctx->persist) {
-                egw_persist_set(ctx->persist, (uint32_t)ctx->cur_port, val);
-            }
+            egw_bus_publish(p->bus, 0, 0, val);
         }
         egw_proto_reset(p->proto);
-        ctx->phase = PHASE_SCHED_IDLE;
     } else if (r == EGW_PROTO_FRAME_ERROR) {
-        ctx->phase = PHASE_SCHED_IDLE;
+        /* auto-reset */
     }
+}
+
+/* ── 回调：poll ──────────────────────────────────────── */
+
+static void on_poll_cb(uv_poll_t *handle, int status, int events)
+{
+    port_ctx_t *p = uv_handle_get_data((uv_handle_t *)handle);
+
+    if (status < 0) {
+        egw_serial_close(p->tp);
+        p->tp = NULL;
+        uv_close((uv_handle_t *)&p->poll, NULL);
+        {
+            egw_serial_t *new_tp = NULL;
+            egw_err_t err = egw_serial_open(&p->params, &new_tp);
+            p->tp = (err == EGW_OK) ? new_tp : NULL;
+        }
+        if (p->tp) {
+            uv_poll_init(p->loop, &p->poll,
+                         egw_serial_get_fd(p->tp));
+            uv_handle_set_data((uv_handle_t *)&p->poll, p);
+            uv_poll_start(&p->poll, UV_READABLE, on_poll_cb);
+        }
+        g_app->phase = 0;
+        return;
+    }
+
+    if (events & UV_READABLE) {
+        do_poll_read(p);
+    }
+
+    if (events & UV_WRITABLE) {
+        egw_serial_flush(p->tp);
+    }
+
+    int want = UV_READABLE;
+    if (egw_serial_has_pending(p->tp)) {
+        want |= UV_WRITABLE;
+    }
+    uv_poll_start(&p->poll, want, on_poll_cb);
+}
+
+/* ── 回调：timer ─────────────────────────────────────── */
+
+static void on_timer_cb(uv_timer_t *handle)
+{
+    (void)handle;
+    app_t *app = g_app;
+
+    if (app->phase == 0) {
+        do_sched_poll();
+    }
+}
+
+/* ── 回调：signal ────────────────────────────────────── */
+
+static void on_sigint_cb(uv_signal_t *handle, int signum)
+{
+    (void)handle;
+    (void)signum;
+    app_t      *app = g_app;
+    egw_event_t ev  = { .sig = EV_SIGINT, .data = NULL };
+
+    egw_fsm_dispatch(&app->eng.fsm, &ev);
 }
 
 /* ── 状态 RUNNING ────────────────────────────────────── */
 
-static void st_running(void *fsm_ptr, egw_event_t *ev)
+static egw_state_t st_running(void *ctx, egw_event_t *ev)
 {
-    app_ctx_t *ctx = (app_ctx_t *)fsm_ptr;
-
     switch (ev->sig) {
+    case EGW_ENTRY_SIG:
+    case EGW_EXIT_SIG:
+        return EGW_RET_HANDLED;
+
     case EV_SIGINT:
         printf("\nShutting down...\n");
-        EGW_FSM_TRAN(&ctx->fsm, st_shutdown);
-        st_shutdown(fsm_ptr, NULL);
-        break;
-
-    case EV_TIMER_TICK:
-        do_sched_poll(ctx);
-        break;
+        return EGW_TRAN(st_shutdown);
 
     default:
-        break;
+        return EGW_RET_HANDLED;
     }
 }
 
 /* ── 状态 SHUTDOWN ──────────────────────────────────── */
 
-static void st_shutdown(void *fsm_ptr, egw_event_t *ev)
+static egw_state_t st_shutdown(void *ctx, egw_event_t *ev)
 {
-    (void)ev;
-    app_ctx_t *ctx = (app_ctx_t *)fsm_ptr;
+    app_t *app = (app_t *)ctx;
 
-    egw_timer_stop(&ctx->sched_timer);
-    egw_timer_close(&ctx->sched_timer);
+    switch (ev->sig) {
+    case EGW_ENTRY_SIG:
+        uv_stop(&app->eng.loop);
+        return EGW_RET_HANDLED;
 
-    for (int i = 0; i < ctx->port_count; i++) {
-        port_ctx_t *p = &ctx->ports[i];
-        egw_poll_stop(&p->poll);
-        egw_poll_close(&p->poll);
-        egw_serial_close(p->tp);
-        p->tp = NULL;
-        egw_proto_ctx_destroy(p->proto);
-        p->proto = NULL;
-        free((void *)p->params.path);
-        p->params.path = NULL;
+    default:
+        return EGW_RET_HANDLED;
     }
-
-    egw_signal_close(&ctx->sigint);
-    egw_loop_stop(egw_runtime_loop(ctx->rt));
 }
 
 /* ── 打开端口 ────────────────────────────────────────── */
 
-static egw_err_t open_ports(app_ctx_t *ctx)
+static egw_err_t open_ports(app_t *app)
 {
-    egw_loop_t *loop = egw_runtime_loop(ctx->rt);
     int32_t n_ports;
 
-    egw_conf_array_length(ctx->cfg, "/modbus/serial_ports",
-                          &n_ports, 0);
+    egw_conf_array_length(app->cfg, "/modbus/serial_ports", &n_ports, 0);
 
-    for (int32_t p = 0; p < n_ports && p < MAX_PORTS; p++) {
+    for (int32_t p = 0; p < n_ports && app->port_count < MAX_PORTS; p++) {
         char path_key[128];
         char baud_key[128];
         char parity_key[128];
@@ -328,59 +279,60 @@ static egw_err_t open_ports(app_ctx_t *ctx)
                  "/modbus/serial_ports/%d/parity", p);
 
         char *path = NULL;
-        egw_conf_get_string(ctx->cfg, path_key, &path, NULL);
-        if (!path) {
-            continue;
-        }
+        egw_conf_get_string(app->cfg, path_key, &path, NULL);
+        if (!path) continue;
 
         int32_t baud = 9600;
-        egw_conf_get_int(ctx->cfg, baud_key, &baud, baud);
+        egw_conf_get_int(app->cfg, baud_key, &baud, baud);
 
         char parity = 'N';
         char *ps = NULL;
-        egw_conf_get_string(ctx->cfg, parity_key, &ps, NULL);
-        if (ps) {
-            parity = ps[0];
-            free(ps);
-        }
+        egw_conf_get_string(app->cfg, parity_key, &ps, NULL);
+        if (ps) { parity = ps[0]; free(ps); }
 
         egw_serial_params_t sp = {
-            .path      = path,
-            .baud      = baud,
-            .parity    = parity,
-            .data_bits = 8,
-            .stop_bits = 1,
+            .path = path, .baud = baud, .parity = parity,
+            .data_bits = 8, .stop_bits = 1,
         };
 
-        egw_serial_t *tp  = NULL;
-        egw_err_t     err = egw_serial_open(&sp, &tp);
+        egw_serial_t *tp = NULL;
+        egw_err_t err = egw_serial_open(&sp, &tp);
         if (err != EGW_OK) {
             printf("port[%d]: open failed (%d)\n", p, err);
             free(path);
             continue;
         }
 
-        port_ctx_t *pc = &ctx->ports[ctx->port_count];
-        pc->proto = egw_proto_ctx_create();
-        if (!pc->proto) {
-            egw_serial_close(tp);
-            free(path);
-            continue;
-        }
+        egw_proto_ctx_t *proto = egw_proto_ctx_create();
+        if (!proto) { egw_serial_close(tp); free(path); continue; }
 
-        egw_poll_init(loop, &pc->poll, egw_serial_get_fd(tp));
-        egw_poll_start(&pc->poll, EGW_POLLIN, on_poll_cb, ctx);
+        port_ctx_t *pc = &app->ports[app->port_count];
+        uv_poll_init(&app->eng.loop, &pc->poll, egw_serial_get_fd(tp));
+        uv_handle_set_data((uv_handle_t *)&pc->poll, pc);
+        uv_poll_start(&pc->poll, UV_READABLE, on_poll_cb);
 
-        pc->tp         = tp;
-        pc->port_index = ctx->port_count;
-        pc->params     = sp;
+        pc->tp      = tp;
+        pc->proto   = proto;
+        pc->params  = sp;
+        pc->loop    = &app->eng.loop;
+        pc->bus     = app->eng.bus;
         pc->params.path = strdup(path);
         free(path);
-        ctx->port_count++;
+        app->port_count++;
         printf("  opened %s\n", sp.path);
     }
 
     return EGW_OK;
+}
+
+/* ── 总线回调（占位） ───────────────────────────────── */
+
+static void on_bus_data(uint16_t device_id, uint32_t sig_id,
+                        egw_value_t value, void *data)
+{
+    (void)data;
+    printf("bus: dev=%u sig=%u val=%d\n",
+           (unsigned)device_id, (unsigned)sig_id, value.i32);
 }
 
 /* ── 入口 ────────────────────────────────────────────── */
@@ -395,81 +347,73 @@ int egw_app_run(int argc, char *argv[])
         }
     }
 
-    app_ctx_t ctx;
-    memset(&ctx, 0, sizeof(ctx));
-    egw_fsm_init(&ctx.fsm, st_running);
+    app_t app;
+    memset(&app, 0, sizeof(app));
+    g_app = &app;
 
-    /* 创建事件循环 */
-    egw_loop_t *loop = egw_loop_create();
-    if (!loop) {
-        printf("Failed to create event loop\n");
+    /* ── 引擎（loop + bus + fsm） ─────────────────── */
+
+    egw_err_t err = gw_engine_init(&app.eng, st_running, &app);
+    if (err != EGW_OK) {
+        printf("Failed to initialize engine\n");
         return 1;
     }
 
-    /* 创建总线 */
-    egw_bus_t *bus = egw_bus_create();
-    if (!bus) {
-        egw_loop_destroy(loop);
-        return 1;
-    }
+    /* ── 配置 ────────────────────────────────────── */
 
-    /* 创建运行时 */
-    ctx.rt = egw_runtime_create(loop, bus);
-    if (!ctx.rt) {
-        egw_bus_destroy(bus);
-        egw_loop_destroy(loop);
-        return 1;
-    }
-
-    /* 订阅总线数据 */
-    egw_bus_subscribe(bus, 0xFFFF, 0xFFFFFFFF, on_bus_data, NULL);
-
-    /* 加载配置 */
-    egw_err_t err = egw_conf_load(cfg_path, &ctx.cfg);
+    err = egw_conf_load(cfg_path, &app.cfg);
     if (err != EGW_OK) {
         printf("Failed to load config: %d\n", err);
-        egw_runtime_destroy(ctx.rt);
-        egw_bus_destroy(bus);
-        egw_loop_destroy(loop);
+        gw_engine_destroy(&app.eng);
         return 1;
     }
 
-    /* 初始化持久化（可选，文件不存在时静默跳过） */
-    ctx.persist = egw_persist_create("gateway_persist.bin", 256);
+    /* ── 端口 ────────────────────────────────────── */
 
-    /* 打开端口 */
     printf("Opening serial ports...\n");
-    open_ports(&ctx);
-    if (ctx.port_count == 0) {
+    open_ports(&app);
+    if (app.port_count == 0) {
         printf("No ports opened, exiting.\n");
-        egw_persist_destroy(ctx.persist);
-        egw_conf_free(ctx.cfg);
-        egw_runtime_destroy(ctx.rt);
-        egw_bus_destroy(bus);
-        egw_loop_destroy(loop);
+        egw_conf_free(app.cfg);
+        gw_engine_destroy(&app.eng);
         return 1;
     }
 
-    /* 采集定时器 */
-    egw_timer_init(loop, &ctx.sched_timer);
-    egw_timer_start(&ctx.sched_timer, 1000, 1000, on_timer_cb, &ctx);
+    egw_bus_subscribe(app.eng.bus, 0xFFFF, 0xFFFFFFFF, on_bus_data, NULL);
+    app.persist = egw_persist_create("gateway_persist.bin", 256);
 
-    /* SIGINT */
-    egw_signal_init(loop, &ctx.sigint, SIGINT, on_sigint_cb, &ctx);
+    /* ── 定时器（采集调度） ──────────────────────── */
 
-    ctx.phase = PHASE_SCHED_IDLE;
+    uv_timer_init(&app.eng.loop, &app.sched_timer);
+    uv_handle_set_data((uv_handle_t *)&app.sched_timer, &app);
+    uv_timer_start(&app.sched_timer, on_timer_cb, 1000, 1000);
+
+    /* ── SIGINT ──────────────────────────────────── */
+
+    uv_signal_init(&app.eng.loop, &app.sigint);
+    uv_handle_set_data((uv_handle_t *)&app.sigint, &app);
+    uv_signal_start(&app.sigint, on_sigint_cb, SIGINT);
+
+    /* ── 运行（引擎内部有 prepare → FSM tick） ─── */
 
     printf("Running (Ctrl+C to stop)...\n");
-    err = egw_loop_run(loop);
-    if (err != EGW_OK) {
-        printf("Event loop error: %d\n", err);
+    gw_engine_run(&app.eng);
+
+    /* ── 清理 ────────────────────────────────────── */
+
+    egw_persist_destroy(app.persist);
+
+    for (int i = 0; i < app.port_count; i++) {
+        port_ctx_t *p = &app.ports[i];
+        uv_poll_stop(&p->poll);
+        uv_close((uv_handle_t *)&p->poll, NULL);
+        egw_serial_close(p->tp);
+        egw_proto_ctx_destroy(p->proto);
+        free((void *)p->params.path);
     }
 
-    egw_persist_destroy(ctx.persist);
-    egw_conf_free(ctx.cfg);
-    egw_runtime_destroy(ctx.rt);
-    egw_bus_destroy(bus);
-    egw_loop_destroy(loop);
+    egw_conf_free(app.cfg);
+    gw_engine_destroy(&app.eng);
     printf("Goodbye.\n");
     return 0;
 }

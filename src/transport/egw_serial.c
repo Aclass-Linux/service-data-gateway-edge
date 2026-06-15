@@ -24,18 +24,18 @@ egw_err_t egw_serial_open(const egw_serial_params_t *params,
                            egw_serial_t **tp)
 {
     if (!params || !tp) {
-        return EGW_RETURN_CODE(ERR_INVALID_ARG);
+        return EGW_RET_CODE(ERR_INVALID_ARG);
     }
 
     struct egw_serial *s = calloc(1, sizeof(*s));
     if (!s) {
-        return EGW_ERR_NOMEM;
+        return EGW_RET_CODE(ERR_NOMEM);
     }
 
     s->fd = open(params->path, O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (s->fd < 0) {
         free(s);
-        return EGW_ERR_OPEN;
+        return EGW_RET_CODE(ERR_OPEN);
     }
 
     /* termios */
@@ -43,7 +43,7 @@ egw_err_t egw_serial_open(const egw_serial_params_t *params,
     if (tcgetattr(s->fd, &tio) != 0) {
         close(s->fd);
         free(s);
-        return EGW_ERR_OPEN;
+        return EGW_RET_CODE(ERR_OPEN);
     }
 
     cfmakeraw(&tio);
@@ -97,7 +97,7 @@ egw_err_t egw_serial_open(const egw_serial_params_t *params,
     if (tcsetattr(s->fd, TCSANOW, &tio) != 0) {
         close(s->fd);
         free(s);
-        return EGW_ERR_OPEN;
+        return EGW_RET_CODE(ERR_OPEN);
     }
 
     tcflush(s->fd, TCIOFLUSH);
@@ -106,7 +106,7 @@ egw_err_t egw_serial_open(const egw_serial_params_t *params,
     if (!s->path_copy) {
         close(s->fd);
         free(s);
-        return EGW_ERR_NOMEM;
+        return EGW_RET_CODE(ERR_NOMEM);
     }
 
     s->params = *params;
@@ -146,7 +146,7 @@ egw_err_t egw_serial_read(egw_serial_t *tp, void *buf,
                            size_t *len, size_t cap)
 {
     if (!tp || !buf || !len || cap == 0) {
-        return EGW_RETURN_CODE(ERR_INVALID_ARG);
+        return EGW_RET_CODE(ERR_INVALID_ARG);
     }
 
     ssize_t n = read(tp->fd, buf, cap);
@@ -155,11 +155,11 @@ egw_err_t egw_serial_read(egw_serial_t *tp, void *buf,
             *len = 0;
             return EGW_OK;
         }
-        return EGW_ERR_READ;
+        return EGW_RET_CODE(ERR_READ);
     }
 
     if (n == 0) {
-        return EGW_ERR_READ;
+        return EGW_RET_CODE(ERR_READ);
     }
 
     *len = (size_t)n;
@@ -171,11 +171,11 @@ egw_err_t egw_serial_read(egw_serial_t *tp, void *buf,
 egw_err_t egw_serial_write(egw_serial_t *tp, const void *buf, size_t len)
 {
     if (!tp || !buf || len == 0) {
-        return EGW_RETURN_CODE(ERR_INVALID_ARG);
+        return EGW_RET_CODE(ERR_INVALID_ARG);
     }
 
     if (len > WRITE_BUF_SIZE - tp->write_len) {
-        return EGW_ERR_BUSY;
+        return EGW_RET_CODE(ERR_BUSY);
     }
 
     memcpy(tp->write_buf + tp->write_len, buf, len);
@@ -189,7 +189,7 @@ egw_err_t egw_serial_write(egw_serial_t *tp, const void *buf, size_t len)
 egw_err_t egw_serial_flush(egw_serial_t *tp)
 {
     if (!tp) {
-        return EGW_RETURN_CODE(ERR_INVALID_ARG);
+        return EGW_RET_CODE(ERR_INVALID_ARG);
     }
 
     while (tp->write_len > 0)
@@ -199,7 +199,7 @@ egw_err_t egw_serial_flush(egw_serial_t *tp)
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 break;
             }
-            return EGW_ERR_WRITE;
+            return EGW_RET_CODE(ERR_WRITE);
         }
         if (n > 0) {
             size_t remaining = tp->write_len - (size_t)n;

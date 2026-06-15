@@ -44,7 +44,7 @@ typedef struct egw_conf egw_conf_t;
  * @return EGW_OK             成功
  * @return EGW_ERR_NOTFOUND  文件不存在或无法打开
  * @return EGW_ERR_PARSE       JSON 解析失败或根元素不是对象
- * @return EGW_RETURN_CODE(ERR_INVALID_ARG)     参数为 NULL 或内存分配失败
+ * @return EGW_RET_CODE(ERR_INVALID_ARG)     参数为 NULL 或内存分配失败
  */
 egw_err_t    egw_conf_load(const char *path, egw_conf_t **cfg);
 
@@ -66,7 +66,7 @@ void         egw_conf_free(egw_conf_t *cfg);
  * @param[in] cfg       配置句柄
  * @param[in] key_path  JSON Pointer 路径，"" 表示回到文档根
  * @return EGW_OK             成功
- * @return EGW_RETURN_CODE(ERR_INVALID_ARG)    参数为 NULL
+ * @return EGW_RET_CODE(ERR_INVALID_ARG)    参数为 NULL
  * @return EGW_ERR_NOTFOUND  路径不存在
  */
 egw_err_t    egw_conf_enter(egw_conf_t *cfg, const char *key_path);
@@ -82,7 +82,7 @@ egw_err_t    egw_conf_enter(egw_conf_t *cfg, const char *key_path);
  * @param[out] out      写入值指针（strdup 副本，调用方 free）
  * @param[in]  def      默认值（可为 NULL，此时 *out = NULL）
  * @return EGW_OK              成功
- * @return EGW_RETURN_CODE(ERR_INVALID_ARG)     参数为 NULL
+ * @return EGW_RET_CODE(ERR_INVALID_ARG)     参数为 NULL
  * @return EGW_ERR_NOTFOUND 键不存在或类型不匹配，*out = strdup(def)
  */
 egw_err_t    egw_conf_get_string(egw_conf_t *cfg, const char *key_path, char **out, const char *def);
@@ -97,7 +97,7 @@ egw_err_t    egw_conf_get_string(egw_conf_t *cfg, const char *key_path, char **o
  * @param[out] out      写入值指针
  * @param[in]  def      默认值
  * @return EGW_OK              成功
- * @return EGW_RETURN_CODE(ERR_INVALID_ARG)     参数为 NULL
+ * @return EGW_RET_CODE(ERR_INVALID_ARG)     参数为 NULL
  * @return EGW_ERR_NOTFOUND 键不存在或类型不匹配，*out = def
  */
 egw_err_t    egw_conf_get_int(egw_conf_t *cfg, const char *key_path, int32_t *out, int32_t def);
@@ -112,7 +112,7 @@ egw_err_t    egw_conf_get_int(egw_conf_t *cfg, const char *key_path, int32_t *ou
  * @param[out] out      写入值指针
  * @param[in]  def      默认值
  * @return EGW_OK              成功
- * @return EGW_RETURN_CODE(ERR_INVALID_ARG)     参数为 NULL
+ * @return EGW_RET_CODE(ERR_INVALID_ARG)     参数为 NULL
  * @return EGW_ERR_NOTFOUND 键不存在或类型不匹配，*out = def
  */
 egw_err_t    egw_conf_get_bool(egw_conf_t *cfg, const char *key_path, bool *out, bool def);
@@ -127,7 +127,7 @@ egw_err_t    egw_conf_get_bool(egw_conf_t *cfg, const char *key_path, bool *out,
  * @param[out] out      写入值指针
  * @param[in]  def      默认值
  * @return EGW_OK              成功
- * @return EGW_RETURN_CODE(ERR_INVALID_ARG)     参数为 NULL
+ * @return EGW_RET_CODE(ERR_INVALID_ARG)     参数为 NULL
  * @return EGW_ERR_NOTFOUND 键不存在或目标不是数组，*out = def
  */
 egw_err_t    egw_conf_array_length(egw_conf_t *cfg, const char *key_path, int32_t *out, int32_t def);

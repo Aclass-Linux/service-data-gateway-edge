@@ -34,8 +34,8 @@
 ### 发布订阅总线 (Pub/Sub Bus)
 用 `egw_bus_t` 表示的线程内同步分发总线。生产者以 `(device_id, sig_id, value)` 发布，消费者通过 `egw_bus_subscribe()` 订阅回调。第一版数组式订阅表，O(n) 遍历，回调必须非阻塞。已在 core 中实现（`src/core/egw_bus.c`）。
 
-### 运行时 (Runtime)
-用 `egw_runtime_t` 表示的线程内单例上下文，聚合 `egw_loop_t`、`egw_bus_t`、`egw_ptable_t` 等子系统句柄。通过 `egw_runtime_current()` 获取当前线程实例。第一版单线程，文件级静态指针持有。已在 core 中实现（`src/core/egw_runtime.c`）。
+### 共享上下文 (Context)
+用 `egw_context_t` 表示的线程内基础设施容器，持有 `egw_loop_t *` 和 `egw_bus_t *`，不需要的字段为 NULL。通过 `egw_context_init()` 创建（内部创建 loop + bus），`egw_context_destroy()` 销毁。不聚合应用层状态，线程间各自独立。定义在 `src/core/include/egw_context.h`。
 
 ### 运行时值持久化 (Runtime Value Persistence)
 以 `egw_persist_t` 管理的内存 mmap 文件，保存测点当前值。槽位使用 seqlock（代数 gen + `uint64_t` 裸值），主回路写值时置脏页位（零开销），flush 时扫描脏页按 4KB 页粒度 `pwrite` 落盘。已在 `src/persist/` 中实现。参考 DS-008。
@@ -44,5 +44,5 @@
 
 ## 原有术语（已确认，继续有效）
 
-- **状态机 (Finite State Machine)**：用 `egw_fsm_t` 表示通用分层状态机引擎，状态通过函数指针表示，事件（`egw_event_t`）派发到当前状态函数。已在 core 中实现（`src/core/include/egw_fsm.h`），应用层和协议层均可使用。
+- **状态机 (Finite State Machine)**：用 `egw_fsm_t` 表示通用状态机引擎。状态通过函数指针表示，返回 `egw_ret_t{target}` 驱动转移。引擎自动投递 `EGW_ENTRY_SIG`/`EGW_EXIT_SIG` 保留信号，状态函数在 entry 中做初始化、在 exit 中做清理。以 `egw_fsm_init` 初始化（自动执行初态 entry），`egw_fsm_dispatch` 派发事件。已在 core 中实现（`src/core/egw_fsm.c`、`src/core/include/egw_fsm.h`），应用层和协议层均可使用。
 - **线程池集成**：如果未来出现加密解密等计算密集型任务，通过异步投递机制将任务移出主事件循环线程执行。

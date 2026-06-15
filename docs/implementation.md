@@ -14,7 +14,7 @@
 
 `egw_fsm.h` 中 `egw_signal_t`（事件信号类型）重命名为 `egw_sig_t` 避免冲突。
 
-修复：`egw_loop_run()` 在 `uv_stop()` 后误报 `EGW_ERR_LOOP_RUN` → 改为检查 `should_stop` 标志。
+修复：`egw_loop_run()` 在 `uv_stop()` 后误报 `EGW_ERR_LOOP_RUN` → 改为检查 `should_stop` 标志。（已被后续简化移除：`UV_RUN_DEFAULT` 返回值 >0 必定来自 uv_stop，`should_stop` 冗余。）
 
 ### Protocol FSM：Modbus RTU 帧解析
 
@@ -42,6 +42,17 @@
 | `src/core/egw_runtime.c` | 运行时实现（聚合 loop+bus） |
 | `src/ptable/` | 点表 mmap 加载器模块 |
 | `src/persist/` | 运行时值持久化模块 |
+
+## 2026-06-15：FSM 引擎重写 — entry/exit + 返回值驱动转移
+
+`egw_fsm_t` 从纯函数指针覆盖升级为类 QP/C 的返回值驱动模式：
+
+- 新增 `egw_ret_t { target }` 返回值，状态函数返回 `EGW_RETURN(state)` 或 `EGW_RET_HANDLED`
+- `egw_fsm_dispatch` 自动做 `exit(source) → 切指针 → entry(target)`
+- `egw_fsm_init` 自动执行初态 entry
+- 框架保留信号 `EGW_ENTRY_SIG` / `EGW_EXIT_SIG` / `EGW_INIT_SIG` / `EGW_USER_SIG`，用户信号从 `EGW_USER_SIG` 开始
+
+`gateway_app.c` 随之适配：`st_running` / `st_shutdown` 改为返回 `egw_ret_t`；`st_shutdown` 的清理逻辑收归 `EGW_ENTRY_SIG`；删除手工 `st_shutdown(fsm_ptr, NULL)`。
 
 ### 设计决策
 

@@ -1,6 +1,6 @@
 set(APP_TARGET ${ACLASS_PROJECT_NAME})
 
-add_executable(${APP_TARGET} main.c gateway_app.c)
+add_executable(${APP_TARGET} main.c gateway_app.c gateway_engine.c)
 
 target_include_directories(${APP_TARGET} PRIVATE
     ${CMAKE_SOURCE_DIR}/third-party/libuv/include

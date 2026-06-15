@@ -52,9 +52,9 @@
 
 **决定**：第一版单线程。每个任务线程持有线程内单例 `egw_runtime_t`（聚合 `egw_loop_t`、`egw_bus_t`、`egw_ptable_t`、`lua_State`），通过 `egw_runtime_current()` 访问。多线程扩展时各线程内部仍为事件驱动 runtime，跨线程通过 `uv_async_send` 投递。
 
-**实施调整**：原协程模型替换为 `egw_fsm_t` 状态机。
+**实施调整**：原协程模型替换为 `egw_fsm_t` 状态机。后 `egw_runtime_t` 被移除，替换为 `egw_context_t`（仅持 loop + bus，无文件级静态指针）。
 
-**状态**：已实施（`egw_runtime_t` 聚合 loop + bus，`egw_runtime_current()` 访问）。`egw_ptable_t` 和 `lua_State` 未接入 runtime。
+**状态**：已实施（`egw_context_t` 取代 `egw_runtime_t` 聚合 loop + bus，显式传参不依赖全局指针）。
 
 ---
 
@@ -88,3 +88,44 @@
 - 单一功能线程：只有专属资源 + `uv_async_t` 通信
 
 **状态**：设计约束，持续遵守。
+
+---
+
+## DS-011：FSM 引擎 entry/exit + 返回值驱动转移
+
+**决定**：`egw_fsm_t` 引擎改为类 QP/C 的返回值驱动模式：
+
+- 框架保留 4 个信号：`EGW_ENTRY_SIG`、`EGW_EXIT_SIG`、`EGW_INIT_SIG`、`EGW_USER_SIG`
+- 状态函数签名改为返回 `egw_ret_t { target }`，`target == NULL` 表示不转移，非 NULL 表示转移到目标状态
+- `egw_fsm_dispatch` 在检测到转移时自动执行：`exit(source) → current = target → entry(target)`
+- `egw_fsm_init` 自动执行初始状态的 entry 动作
+- 返回值采用结构体而非 QP 的隐藏 temp 字段，减少间接层；不增加 ABI 开销
+
+**动机**：
+- 消除了手工调 `st_shutdown(fsm_ptr, NULL)` 这类脆弱模式
+- 状态函数的 entry/exit 逻辑由引擎自动编排，不会遗漏清理
+- `app_phase_t` 隐式子 FSM 未来可收归引擎管理
+
+**备选方案**：
+- QP/C 的 `uint_fast8_t` 返回值 + `Q_TRAN` 宏写隐藏字段 —— 副作用不够透明，HSM 能力当前用不上
+
+**状态**：已实施（`src/core/egw_fsm.c`、`src/core/include/egw_fsm.h`）。
+
+---
+
+## DS-012：移除 egw_runtime_t，替换为 egw_context_t
+
+**决定**：将 `egw_runtime_t`（内含文件级静态指针 `g_runtime` + `egw_runtime_current()` 全局访问器）替换为 `egw_context_t{ loop, bus }`。
+
+- `egw_context_init()` 内部创建 loop + bus，`egw_context_destroy()` 销毁。定义在 `src/core/include/egw_context.h` + `src/core/egw_context.c`
+- 无全局静态状态，context 实例在 `egw_app_run` 栈上声明，通过指针显式传参
+- 应用层不再有聚合一切的 `app_ctx_t`；每个回调通过 `data` 指针仅拿到自己需要的部分（`port_ctx_t`、`timer_share_t`、`fsm_data_t`）
+- FSM 仅负责 running → shutdown 转移；清理在 `egw_loop_run` 返回后统一执行
+- `port_ctx_t` 持有 `egw_context_t *` 回指，供 reopen 场景取 loop
+
+**动机**：
+- 消除文件级静态可变状态（违反 ADR-0010）
+- 组件解耦：不再有一个中心结构体被所有函数引用
+- 为未来多线程做准备：每个线程独立声明自己的 context，不共享
+
+**状态**：已实施（`gateway_app.c` + `egw_context.h`）。

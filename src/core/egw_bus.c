@@ -1,6 +1,5 @@
 #include "egw_bus.h"
 #include <stdlib.h>
-#include <string.h>
 
 #define MAX_SUBS 128
 
@@ -18,8 +17,7 @@ struct egw_bus {
 
 egw_bus_t *egw_bus_create(void)
 {
-    egw_bus_t *bus = calloc(1, sizeof(*bus));
-    return bus;
+    return calloc(1, sizeof(egw_bus_t));
 }
 
 void egw_bus_destroy(egw_bus_t *bus)
@@ -31,11 +29,11 @@ egw_err_t egw_bus_subscribe(egw_bus_t *bus, uint16_t device_id,
                              uint32_t sig_id, egw_bus_cb cb, void *data)
 {
     if (!bus || !cb) {
-        return EGW_RETURN_CODE(ERR_INVALID_ARG);
+        return EGW_RET_CODE(ERR_INVALID_ARG);
     }
 
     if (bus->count >= MAX_SUBS) {
-        return EGW_ERR_BUSY;
+        return EGW_RET_CODE(ERR_BUSY);
     }
 
     bus->subs[bus->count].device_id = device_id;
@@ -51,7 +49,7 @@ egw_err_t egw_bus_unsubscribe(egw_bus_t *bus, uint16_t device_id,
                                uint32_t sig_id, egw_bus_cb cb)
 {
     if (!bus || !cb) {
-        return EGW_RETURN_CODE(ERR_INVALID_ARG);
+        return EGW_RET_CODE(ERR_INVALID_ARG);
     }
 
     for (int i = 0; i < bus->count; i++) {
@@ -64,7 +62,7 @@ egw_err_t egw_bus_unsubscribe(egw_bus_t *bus, uint16_t device_id,
         }
     }
 
-    return EGW_ERR_NOTFOUND;
+    return EGW_RET_CODE(ERR_NOTFOUND);
 }
 
 void egw_bus_publish(egw_bus_t *bus, uint16_t device_id,

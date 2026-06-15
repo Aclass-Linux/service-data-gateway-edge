@@ -11,21 +11,20 @@
 #define EGW_BUS_H
 
 #include "egw_defs.h"
-
-typedef struct egw_bus egw_bus_t;
+#include <stdint.h>
 
 typedef void (*egw_bus_cb)(uint16_t device_id, uint32_t sig_id,
                             egw_value_t value, void *data);
 
+typedef struct egw_bus egw_bus_t;
+
 egw_bus_t *egw_bus_create(void);
 void       egw_bus_destroy(egw_bus_t *bus);
-
 egw_err_t  egw_bus_subscribe(egw_bus_t *bus, uint16_t device_id,
                               uint32_t sig_id, egw_bus_cb cb, void *data);
 egw_err_t  egw_bus_unsubscribe(egw_bus_t *bus, uint16_t device_id,
                                 uint32_t sig_id, egw_bus_cb cb);
-
 void       egw_bus_publish(egw_bus_t *bus, uint16_t device_id,
                             uint32_t sig_id, egw_value_t value);
 
-#endif
+#endif /* EGW_BUS_H */
