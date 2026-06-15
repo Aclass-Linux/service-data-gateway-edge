@@ -22,12 +22,6 @@
 ### 协程 (Coroutine)
 无栈协程，基于 `switch` + `__LINE__` 的 protothread 模式。状态通过 `egw_coro_t` 结构体传入实现可重入。在 I/O 等待点通过 `CORO_YIELD` 让出控制权给调度器，就绪后从断点恢复。协程内禁止一切阻塞操作——所有 fd 必须 `O_NONBLOCK`，等就绪靠 `await_readable`/`await_writable` 显式 yield。
 
-### 协程调度器 (Coroutine Scheduler)
-用 `egw_coro_sched_t` 表示的无栈协程运行时。内部拥有一个 libuv event loop，负责所有 fd 就绪事件的分发。不提供读写缓冲语义——只做两件事：运行协程循环（`sched_run`），以及当 fd 可读/可写时唤醒等待中的协程。app 通过 `sched_get_loop()` 获取底层 loop 句柄用于信号注册（如 SIGINT）。
-
-### 协程 (Coroutine)
-无栈协程，基于 `switch` + `__LINE__` 的 protothread 模式。状态通过 `egw_coro_t` 结构体传入实现可重入。在 I/O 等待点通过 `CORO_YIELD` 让出控制权给调度器，就绪后从断点恢复。协程内禁止一切阻塞操作——所有 fd 必须 `O_NONBLOCK`，等就绪靠 `await_readable`/`await_writable` 显式 yield。
-
 ### 传输层 (Transport)
 基于协程模型重写的字节流 I/O 通道，不涉及协议解析。每个连接有一个读协程（`await_readable` → `read` → `on_data` → flush 写队列）。写通过内部队列缓冲，协程在每次读后尝试刷写。fd 由主线程同步 open，协程只负责就绪后的 non-blocking 读写。不直接使用任何 libuv API——所有 libuv 交互经协程调度器封装。
 
