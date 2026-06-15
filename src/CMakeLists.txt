@@ -1,4 +1,6 @@
 add_subdirectory(core)
 add_subdirectory(protocol)
 add_subdirectory(transport)
+add_subdirectory(ptable)
+add_subdirectory(persist)
 add_subdirectory(app)

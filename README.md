@@ -36,14 +36,15 @@ run                    # 运行网关
 ├── cmake/                   项目级 CMake 配置及工具链
 ├── scripts/                 构建脚本
 ├── src/
-│   ├── core/                基础组件（错误码、配置）
+│   ├── core/                基础组件（错误码、事件循环、配置、总线、运行时）
 │   ├── transport/           传输层（串口、TCP）
-│   ├── protocol/            协议解析
-│   ├── script/              脚本引擎（Lua）
+│   ├── protocol/            协议解析（Modbus RTU）
+│   ├── ptable/              点表加载（mmap）
 │   └── app/                 可执行入口
 ├── third-party/             第三方依赖（cjson, libuv, unity）
 ├── tests/                   单元测试（Unity）
 ├── build/                   编译产物
-├── docs/adr/                架构决策记录
+├── docs/design.md           设计决策记录
+├── docs/implementation.md   实施记录
 └── install/                 Release 产物
 ```

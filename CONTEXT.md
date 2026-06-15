@@ -3,7 +3,7 @@
 ## 术语表
 
 ### 错误码 (Error Code)
-全局统一的模块故障返回值，类型为 `egw_err_t`（`int32_t`）。`EGW_OK = 0` 表示成功，负值表示错误。顺序编号，新增在末尾追加。错误码按**错误性质**命名（如 `EGW_ERR_NOTFOUND` 表示"不存在"），不体现模块归属。枚举定义通过 X-macro 表 `egw_err.inc` 自动生成，配套 `egw_err_str()` 函数输出 `"EGW_ERR_INVAL (-3): invalid argument"` 格式的字符串。
+全局统一的模块故障返回值，类型为 `egw_err_t`（`int32_t`）。`EGW_OK = 0` 表示成功，负值表示错误。顺序编号，新增在末尾追加。错误码按**错误性质**命名（如 `EGW_ERR_NOTFOUND` 表示"不存在"），不体现模块归属。枚举定义通过 X-macro 表 `egw_err.inc` 自动生成，配套 `egw_err_str()` 函数输出 `"EGW_ERR_INVALID_ARG (-3): invalid argument"` 格式的字符串。
 
 ### 错误码命名 (Error Code Naming)
 命名描述错误性质，不体现模块来源。模块来源通过函数名追踪。定义在 `egw_err.inc` 中单点维护，`egw_defs.h` 通过 `#include` 展开为 `enum`，`egw_err.c` 展开为 `egw_err_str()` switch 语句。
@@ -16,37 +16,33 @@
 ### 北向点表 (Northbound Point Table)
 网关作为 Modbus 从设备的数据模型定义文件。描述如何把核心类型值编码到北向协议以及本侧的值处理：北向目标类型、**通道标识（位掩码：MQTT/SQLite/Lua...）**、MQTT topic、寄存器地址映射，以及**本侧转换系数**（scale/offset）和**可选的本侧死区**（deadband）。离线构建。
 
-### 协程调度器 (Coroutine Scheduler)
-用 `egw_coro_sched_t` 表示的无栈协程运行时。内部拥有一个 libuv event loop，负责所有 fd 就绪事件的分发。不提供读写缓冲语义——只做两件事：运行协程循环（`sched_run`），以及当 fd 可读/可写时唤醒等待中的协程。app 通过 `sched_get_loop()` 获取底层 loop 句柄用于信号注册（如 SIGINT）。
-
-### 协程 (Coroutine)
-无栈协程，基于 `switch` + `__LINE__` 的 protothread 模式。状态通过 `egw_coro_t` 结构体传入实现可重入。在 I/O 等待点通过 `CORO_YIELD` 让出控制权给调度器，就绪后从断点恢复。协程内禁止一切阻塞操作——所有 fd 必须 `O_NONBLOCK`，等就绪靠 `await_readable`/`await_writable` 显式 yield。
-
 ### 传输层 (Transport)
-基于协程模型重写的字节流 I/O 通道，不涉及协议解析。每个连接有一个读协程（`await_readable` → `read` → `on_data` → flush 写队列）。写通过内部队列缓冲，协程在每次读后尝试刷写。fd 由主线程同步 open，协程只负责就绪后的 non-blocking 读写。不直接使用任何 libuv API——所有 libuv 交互经协程调度器封装。
-
-### 传输实例 (Transport Instance)
-用 `egw_transport_instance_t`（不透明句柄）表示一个完整的 transport 子系统实例。内部包含一个 `egw_coro_sched_t` 调度器。app 负责：
-1. 调用 `egw_transport_create()` 创建实例
-2. 调用 `egw_serial_register()` 逐一注册端口（主线程同步 open fd + spawn 协程）
-3. 调用 `egw_transport_run()`（内部 `sched_run`）阻塞运行
-4. 退出时调用 `egw_transport_destroy()` 停止调度器并释放资源
+纯同步非阻塞 I/O 工具层，负责端口（串口/TCP）的 open/read/write/flush/close，不涉及协议解析。**不持有事件循环或任何句柄、不注册回调、不运行状态机**——只提供 fd 级别的字节流读写接口。App 层负责编排：通过 `egw_loop_t` 注册 fd 就绪 → 调用 transport read → 将字节喂入 Protocol FSM → 处理完整帧。当前实现：`egw_serial.c`。
 
 ### 传输连接 (Transport Connection)
-用 `egw_serial_t *`（不透明句柄）表示一个已注册的串口连接。由 `egw_serial_register` 创建，内部包含一个 `egw_coro_t` 运行读循环。关闭后句柄不可再用。
+用 `egw_serial_t *`（不透明句柄）表示一个已打开的串口连接。由 `egw_serial_open()` 同步创建（open fd + termios 配置），内部持有 fd、参数副本和写缓冲区。关闭后句柄不可再用。
 
 ### 协议层 (Protocol)
-负责解析数据的语义和帧边界检测。例如 Modbus RTU 帧解析、MQTT 报文编解码。运行在协程调度器上，是一类协程，与传输层共享同一调度器。当前为占位函数，待后续实现。
+负责解析数据的语义和帧边界检测。以状态机驱动，每个连接独立一个 `egw_proto_ctx_t` 上下文。App 通过 `egw_proto_feed()` 推入原始字节，内部做帧定界 + CRC 校验，同步返回 FRAME_READY/NEED_MORE/FRAME_ERROR。当前实现 Modbus RTU 帧解析（`src/protocol/egw_protocol.c`）。
 
-路由表**不存**转换系数（scale/offset）和死区（deadband）——这些是「谁用谁存」，由南北向各自持有。查找采用完美哈希或等价 O(1) 结构。参考 ADR-0005。
+### 路由表 (Routing Table)
+路由表**不存**转换系数（scale/offset）和死区（deadband）——这些是「谁用谁存」，由南北向各自持有。查找采用完美哈希或等价 O(1) 结构。参考 DS-005。
 
-路由表**不存**转换系数（scale/offset）和死区（deadband）——这些是「谁用谁存」，由南北向各自持有。查找采用完美哈希或等价 O(1) 结构。参考 ADR-0005。
+### 总线值 (Bus Value)
+用 `egw_value_t` 表示的无判别式 8 字节 union（`b/i16/u16/i32/u32/i64/u64/f32/f64/raw`）。`raw` 成员与持久化 `_Atomic uint64_t` 槽位对齐。类型语义由路由表的 `egw_ctype_t` 字段承载。
+
+### 发布订阅总线 (Pub/Sub Bus)
+用 `egw_bus_t` 表示的线程内同步分发总线。生产者以 `(device_id, sig_id, value)` 发布，消费者通过 `egw_bus_subscribe()` 订阅回调。第一版数组式订阅表，O(n) 遍历，回调必须非阻塞。已在 core 中实现（`src/core/egw_bus.c`）。
+
+### 运行时 (Runtime)
+用 `egw_runtime_t` 表示的线程内单例上下文，聚合 `egw_loop_t`、`egw_bus_t`、`egw_ptable_t` 等子系统句柄。通过 `egw_runtime_current()` 获取当前线程实例。第一版单线程，文件级静态指针持有。已在 core 中实现（`src/core/egw_runtime.c`）。
+
+### 运行时值持久化 (Runtime Value Persistence)
+以 `egw_persist_t` 管理的内存 mmap 文件，保存测点当前值。槽位使用 seqlock（代数 gen + `uint64_t` 裸值），主回路写值时置脏页位（零开销），flush 时扫描脏页按 4KB 页粒度 `pwrite` 落盘。已在 `src/persist/` 中实现。参考 DS-008。
 
 ---
 
 ## 原有术语（已确认，继续有效）
 
-- **编译期状态机（Protothread）**：已在 core 中实现为 `egw_coro` 模块，宏提供 `CORO_BEGIN`/`CORO_YIELD`/`CORO_END`，状态通过 `egw_coro_t` 结构体传入，支持多实例并发（可重入）。
-- **协议层协程**：将协议逻辑也写成协程，挂载在同一调度器上。与传输层之间通过 Channel 通信。
-- **协程写队列**：当前 transport 写通过内部队列缓冲 + 读循环内刷写。后续协议层协程接入后，需要独立唤醒机制（写入队后能主动唤醒刷写协程）。
-- **线程池集成**：如果未来出现加密解密等计算密集型任务，通过 `coro_submit_to_threadpool` + eventfd 唤醒协程，不阻塞调度器。
+- **状态机 (Finite State Machine)**：用 `egw_fsm_t` 表示通用分层状态机引擎，状态通过函数指针表示，事件（`egw_event_t`）派发到当前状态函数。已在 core 中实现（`src/core/include/egw_fsm.h`），应用层和协议层均可使用。
+- **线程池集成**：如果未来出现加密解密等计算密集型任务，通过异步投递机制将任务移出主事件循环线程执行。

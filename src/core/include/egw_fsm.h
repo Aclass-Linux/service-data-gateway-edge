@@ -13,11 +13,11 @@
 
 /* ── 事件 ──────────────────────────────────────── */
 
-typedef uint16_t egw_signal_t;
+typedef uint16_t egw_sig_t;
 
 typedef struct {
-    egw_signal_t   sig;
-    void          *data;
+    egw_sig_t   sig;
+    void       *data;
 } egw_event_t;
 
 /* ── 状态函数 ──────────────────────────────────── */

@@ -24,7 +24,7 @@ egw_err_t egw_serial_open(const egw_serial_params_t *params,
                            egw_serial_t **tp)
 {
     if (!params || !tp) {
-        return EGW_ERR_INVAL;
+        return EGW_RETURN_CODE(ERR_INVALID_ARG);
     }
 
     struct egw_serial *s = calloc(1, sizeof(*s));
@@ -146,7 +146,7 @@ egw_err_t egw_serial_read(egw_serial_t *tp, void *buf,
                            size_t *len, size_t cap)
 {
     if (!tp || !buf || !len || cap == 0) {
-        return EGW_ERR_INVAL;
+        return EGW_RETURN_CODE(ERR_INVALID_ARG);
     }
 
     ssize_t n = read(tp->fd, buf, cap);
@@ -189,7 +189,7 @@ egw_err_t egw_serial_write(egw_serial_t *tp, const void *buf, size_t len)
 egw_err_t egw_serial_flush(egw_serial_t *tp)
 {
     if (!tp) {
-        return EGW_ERR_INVAL;
+        return EGW_RETURN_CODE(ERR_INVALID_ARG);
     }
 
     while (tp->write_len > 0)

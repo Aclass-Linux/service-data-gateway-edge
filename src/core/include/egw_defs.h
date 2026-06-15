@@ -7,6 +7,15 @@
 
 typedef int32_t egw_err_t;
 
+/* ── 核心类型枚举（从 X-macro 表展开）────────────── */
+
+typedef uint8_t egw_ctype_t;
+
+enum egw_ctype {
+#define EGW_CORE_TYPE(name, val, desc) EGW_CTYPE_##name = (val),
+    #include "egw_ctype.inc"
+};
+
 /* ── 错误码枚举（从 X-macro 表展开）─────────────── */
 enum egw_err {
 #define EGW_ERROR_CODE(name, val, desc) EGW_##name = (val),
@@ -21,6 +30,23 @@ enum egw_err {
 /* ── 错误码 → 字符串（"EGW_ERR_OPEN (-10): open failed"）── */
 
 const char *egw_err_str(egw_err_t err);
+
+/* ── 总线值表示（无判别式 union，8 字节）────────────── */
+
+typedef union {
+    uint8_t  b;
+    int16_t  i16;
+    uint16_t u16;
+    int32_t  i32;
+    uint32_t u32;
+    int64_t  i64;
+    uint64_t u64;
+    float    f32;
+    double   f64;
+    uint64_t raw;
+} egw_value_t;
+
+_Static_assert(sizeof(egw_value_t) == 8, "egw_value_t must be 8 bytes");
 
 /* ── 编译器构造函数属性 ──────────────────────────── */
 

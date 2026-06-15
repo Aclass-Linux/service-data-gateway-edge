@@ -1,66 +1,91 @@
-#ifndef EGW_LOOP_H
-#define EGW_LOOP_H
-
 /**
  * @file egw_loop.h
  * @brief Event loop abstraction over libuv
  *
- * Core layer封装libuv事件循环，成为事件循环的唯一所有者。
- * 其他层（Transport、Protocol、App）通过此API访问事件循环，
- * 不直接调用libuv。
+ * Core 层封装 libuv 事件循环，成为事件循环的唯一所有者。
+ * 提供 fd 就绪通知（poll）、定时器（timer）、信号（signal）API。
+ * 其他层通过此 API 访问事件循环，不直接调用 libuv。
  *
  * 参考：ADR-0006 Core层持有事件循环
  */
 
+#ifndef EGW_LOOP_H
+#define EGW_LOOP_H
+
 #include "egw_defs.h"
+#include <uv.h>
 
 /* ── 不透明句柄 ────────────────────────────────────── */
 
-typedef struct egw_loop egw_loop_t;
+typedef struct egw_loop   egw_loop_t;
+typedef struct egw_poll   egw_poll_t;
+typedef struct egw_timer  egw_timer_t;
+typedef struct egw_signal egw_signal_t;
 
-/* ── 生命周期 ──────────────────────────────────────── */
+/* ── 回调类型 ──────────────────────────────────────── */
 
-/**
- * @brief 创建事件循环
- * @return 成功返回循环句柄，失败返回NULL
- */
+typedef void (*egw_poll_cb)  (egw_poll_t *poll, int status, int events, void *data);
+typedef void (*egw_timer_cb) (egw_timer_t *timer, void *data);
+typedef void (*egw_signal_cb)(egw_signal_t *sig, int signum, void *data);
+
+/* ── 结构体定义（调用者可嵌入）────────────────────────── */
+
+struct egw_loop {
+    uv_loop_t uv_loop;
+    bool      should_stop;
+};
+
+struct egw_poll {
+    uv_poll_t   handle;
+    egw_poll_cb cb;
+    void       *data;
+};
+
+struct egw_timer {
+    uv_timer_t  handle;
+    egw_timer_cb cb;
+    void        *data;
+};
+
+struct egw_signal {
+    uv_signal_t   handle;
+    egw_signal_cb cb;
+    void         *data;
+};
+
+/* ── 事件循环生命周期 ──────────────────────────────── */
+
 egw_loop_t *egw_loop_create(void);
+egw_err_t   egw_loop_run(egw_loop_t *loop);
+void        egw_loop_stop(egw_loop_t *loop);
+void        egw_loop_destroy(egw_loop_t *loop);
 
-/**
- * @brief 运行事件循环（阻塞）
- * @param loop 循环句柄
- * @return EGW_OK 正常退出，其他值表示错误
- */
-egw_err_t egw_loop_run(egw_loop_t *loop);
+/* ── fd 就绪通知（poll）────────────────────────────── */
 
-/**
- * @brief 停止事件循环
- * @param loop 循环句柄
- *
- * 此函数可以从信号处理器或其他回调中调用，
- * 会在当前循环迭代结束后退出egw_loop_run()。
- */
-void egw_loop_stop(egw_loop_t *loop);
+#define EGW_POLLIN  0x01
+#define EGW_POLLOUT 0x02
 
-/**
- * @brief 销毁事件循环
- * @param loop 循环句柄
- *
- * 必须在egw_loop_run()返回后调用。
- * 会关闭所有未关闭的句柄并释放资源。
- */
-void egw_loop_destroy(egw_loop_t *loop);
+egw_err_t egw_poll_init(egw_loop_t *loop, egw_poll_t *poll, int fd);
+egw_err_t egw_poll_start(egw_poll_t *poll, int events, egw_poll_cb cb, void *data);
+egw_err_t egw_poll_stop(egw_poll_t *poll);
+void      egw_poll_close(egw_poll_t *poll);
 
-/* ── 内部访问接口（仅供Core层内部模块使用）────────── */
+/* ── 定时器 ────────────────────────────────────────── */
 
-/**
- * @brief 获取底层uv_loop_t指针（仅供Core层内部使用）
- * @param loop 循环句柄
- * @return uv_loop_t指针
- *
- * 此函数仅供Core层内部模块（timer、signal等）使用，
- * 外部模块不应调用。
- */
+egw_err_t egw_timer_init(egw_loop_t *loop, egw_timer_t *timer);
+egw_err_t egw_timer_start(egw_timer_t *timer, uint64_t timeout_ms,
+                           uint64_t repeat_ms, egw_timer_cb cb, void *data);
+egw_err_t egw_timer_stop(egw_timer_t *timer);
+void      egw_timer_close(egw_timer_t *timer);
+
+/* ── 信号 ──────────────────────────────────────────── */
+
+egw_err_t egw_signal_init(egw_loop_t *loop, egw_signal_t *sig,
+                           int signum, egw_signal_cb cb, void *data);
+void      egw_signal_close(egw_signal_t *sig);
+
+/* ── 内部访问接口（仅供 Core 层内部 / 过渡期使用）───── */
+
 void *egw_loop_get_uv_loop(egw_loop_t *loop);
 
 #endif /* EGW_LOOP_H */

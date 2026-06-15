@@ -1,6 +1,8 @@
 set(core_src
     egw_err.c
     egw_loop.c
+    egw_bus.c
+    egw_runtime.c
 )
 if(USE_JSON_CONFIG)
     list(APPEND core_src config.c)
@@ -9,9 +11,13 @@ endif()
 set(core_inc
     include/egw_defs.h
     include/egw_err.inc
+    include/egw_ctype.inc
     include/egw_loop.h
     include/config.h
     include/egw_fsm.h
+    include/egw_ptable.h
+    include/egw_bus.h
+    include/egw_runtime.h
 )
 
 add_library(egw_core STATIC)

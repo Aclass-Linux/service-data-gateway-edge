@@ -16,6 +16,7 @@ static void on_sigint(int signum) {
 }
 
 static void on_timer(uv_timer_t *handle) {
+    (void)handle;
     static int count = 0;
     printf("Timer tick %d\n", ++count);
 

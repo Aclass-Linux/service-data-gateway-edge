@@ -5,7 +5,7 @@ static void test_open_null_params(void)
 {
     egw_serial_t *tp = NULL;
     egw_err_t err = egw_serial_open(NULL, &tp);
-    TEST_ASSERT_EQUAL_INT(EGW_ERR_INVAL, err);
+    TEST_ASSERT_EQUAL_INT(EGW_RETURN_CODE(ERR_INVALID_ARG), err);
 }
 
 static void test_open_null_path(void)
@@ -34,19 +34,19 @@ static void test_read_null(void)
     char buf[16];
     size_t len;
     egw_err_t err = egw_serial_read(NULL, buf, &len, sizeof(buf));
-    TEST_ASSERT_EQUAL_INT(EGW_ERR_INVAL, err);
+    TEST_ASSERT_EQUAL_INT(EGW_RETURN_CODE(ERR_INVALID_ARG), err);
 }
 
 static void test_write_null(void)
 {
     egw_err_t err = egw_serial_write(NULL, "data", 4);
-    TEST_ASSERT_EQUAL_INT(EGW_ERR_INVAL, err);
+    TEST_ASSERT_EQUAL_INT(EGW_RETURN_CODE(ERR_INVALID_ARG), err);
 }
 
 static void test_flush_null(void)
 {
     egw_err_t err = egw_serial_flush(NULL);
-    TEST_ASSERT_EQUAL_INT(EGW_ERR_INVAL, err);
+    TEST_ASSERT_EQUAL_INT(EGW_RETURN_CODE(ERR_INVALID_ARG), err);
 }
 
 static void test_has_pending_null(void)
