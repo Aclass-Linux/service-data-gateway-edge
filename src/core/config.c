@@ -19,7 +19,7 @@ struct egw_conf {
 
 egw_err_t egw_conf_load(const char *path, egw_conf_t **out) {
     if (!path || !out) {
-        return EGW_ERR_INVAL;
+        return EGW_RETURN_CODE(ERR_INVALID_ARG);
     }
 
     int fd = open(path, O_RDONLY);
@@ -36,7 +36,7 @@ egw_err_t egw_conf_load(const char *path, egw_conf_t **out) {
     char *buf = malloc((size_t)st.st_size + 1);
     if (!buf) {
         close(fd);
-        return EGW_ERR_INVAL;
+        return EGW_RETURN_CODE(ERR_INVALID_ARG);
     }
 
     ssize_t nread = read(fd, buf, (size_t)st.st_size);
@@ -63,7 +63,7 @@ egw_err_t egw_conf_load(const char *path, egw_conf_t **out) {
     egw_conf_t *cfg = malloc(sizeof(egw_conf_t));
     if (!cfg) {
         cJSON_Delete(root);
-        return EGW_ERR_INVAL;
+        return EGW_RETURN_CODE(ERR_INVALID_ARG);
     }
 
     cfg->root = root;
@@ -86,7 +86,7 @@ void egw_conf_free(egw_conf_t *cfg) {
 
 egw_err_t egw_conf_enter(egw_conf_t *cfg, const char *key_path) {
     if (!cfg || !key_path) {
-        return EGW_ERR_INVAL;
+        return EGW_RETURN_CODE(ERR_INVALID_ARG);
     }
 
     cJSON *item = cJSONUtils_GetPointer(cfg->root, key_path);
@@ -103,7 +103,7 @@ egw_err_t egw_conf_enter(egw_conf_t *cfg, const char *key_path) {
 egw_err_t egw_conf_get_string(egw_conf_t *cfg, const char *key_path,
                                char **out, const char *def) {
     if (!cfg || !out) {
-        return EGW_ERR_INVAL;
+        return EGW_RETURN_CODE(ERR_INVALID_ARG);
     }
 
     cJSON *item = cJSONUtils_GetPointer(cfg->cur, key_path);
@@ -114,7 +114,7 @@ egw_err_t egw_conf_get_string(egw_conf_t *cfg, const char *key_path,
 
     *out = strdup(cJSON_GetStringValue(item));
     if (!*out) {
-        return EGW_ERR_INVAL;
+        return EGW_RETURN_CODE(ERR_INVALID_ARG);
     }
     return EGW_OK;
 }
@@ -122,7 +122,7 @@ egw_err_t egw_conf_get_string(egw_conf_t *cfg, const char *key_path,
 egw_err_t egw_conf_get_int(egw_conf_t *cfg, const char *key_path,
                             int32_t *out, int32_t def) {
     if (!cfg || !out) {
-        return EGW_ERR_INVAL;
+        return EGW_RETURN_CODE(ERR_INVALID_ARG);
     }
 
     cJSON *item = cJSONUtils_GetPointer(cfg->cur, key_path);
@@ -138,7 +138,7 @@ egw_err_t egw_conf_get_int(egw_conf_t *cfg, const char *key_path,
 egw_err_t egw_conf_get_bool(egw_conf_t *cfg, const char *key_path,
                              bool *out, bool def) {
     if (!cfg || !out) {
-        return EGW_ERR_INVAL;
+        return EGW_RETURN_CODE(ERR_INVALID_ARG);
     }
 
     cJSON *item = cJSONUtils_GetPointer(cfg->cur, key_path);
@@ -154,7 +154,7 @@ egw_err_t egw_conf_get_bool(egw_conf_t *cfg, const char *key_path,
 egw_err_t egw_conf_array_length(egw_conf_t *cfg, const char *key_path,
                                  int32_t *out, int32_t def) {
     if (!cfg || !out) {
-        return EGW_ERR_INVAL;
+        return EGW_RETURN_CODE(ERR_INVALID_ARG);
     }
 
     cJSON *item = cJSONUtils_GetPointer(cfg->cur, key_path);

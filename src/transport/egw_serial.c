@@ -171,7 +171,7 @@ egw_err_t egw_serial_read(egw_serial_t *tp, void *buf,
 egw_err_t egw_serial_write(egw_serial_t *tp, const void *buf, size_t len)
 {
     if (!tp || !buf || len == 0) {
-        return EGW_ERR_INVAL;
+        return EGW_RETURN_CODE(ERR_INVALID_ARG);
     }
 
     if (len > WRITE_BUF_SIZE - tp->write_len) {

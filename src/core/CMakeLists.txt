@@ -1,11 +1,15 @@
-set(core_src egw_err.c)
+set(core_src
+    egw_err.c
+    egw_loop.c
+)
 if(USE_JSON_CONFIG)
     list(APPEND core_src config.c)
 endif()
 
-set(core_inc 
+set(core_inc
     include/egw_defs.h
     include/egw_err.inc
+    include/egw_loop.h
     include/config.h
     include/egw_fsm.h
 )
@@ -26,6 +30,8 @@ if(USE_JSON_CONFIG)
     target_compile_definitions(egw_core PUBLIC USE_JSON_CONFIG)
     target_link_libraries(egw_core PRIVATE cjson)
 endif()
+
+target_link_libraries(egw_core PUBLIC uv)
 
 install(TARGETS egw_core
     LIBRARY   DESTINATION lib

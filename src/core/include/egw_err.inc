@@ -14,16 +14,17 @@
 #error egw_err.inc requires EGW_ERROR_CODE macro to be defined before inclusion
 #endif
 
-EGW_ERROR_CODE(OK,           0,   "success")
-EGW_ERROR_CODE(ERR_NOTFOUND, -1,  "resource not found")
-EGW_ERROR_CODE(ERR_PARSE,    -2,  "parse failure")
-EGW_ERROR_CODE(ERR_INVAL,    -3,  "invalid argument")
-EGW_ERROR_CODE(ERR_NOMEM,    -4,  "out of memory")
-EGW_ERROR_CODE(ERR_OPEN,     -10, "open failed")
-EGW_ERROR_CODE(ERR_CLOSE,    -11, "close failed")
-EGW_ERROR_CODE(ERR_WRITE,    -12, "write failed")
-EGW_ERROR_CODE(ERR_READ,     -13, "read failed")
-EGW_ERROR_CODE(ERR_BUSY,     -14, "resource busy")
-EGW_ERROR_CODE(ERR_TIMEOUT,  -15, "operation timed out")
+EGW_ERROR_CODE(OK,                0,   "success")
+EGW_ERROR_CODE(ERR_NOTFOUND,     -1,  "resource not found")
+EGW_ERROR_CODE(ERR_PARSE,        -2,  "parse failure")
+EGW_ERROR_CODE(ERR_INVALID_ARG,  -3,  "invalid argument")
+EGW_ERROR_CODE(ERR_NOMEM,        -4,  "out of memory")
+EGW_ERROR_CODE(ERR_OPEN,         -10, "open failed")
+EGW_ERROR_CODE(ERR_CLOSE,        -11, "close failed")
+EGW_ERROR_CODE(ERR_WRITE,        -12, "write failed")
+EGW_ERROR_CODE(ERR_READ,         -13, "read failed")
+EGW_ERROR_CODE(ERR_BUSY,         -14, "resource busy")
+EGW_ERROR_CODE(ERR_TIMEOUT,      -15, "operation timed out")
+EGW_ERROR_CODE(ERR_LOOP_RUN,     -20, "event loop run failed")
 
 #undef EGW_ERROR_CODE
