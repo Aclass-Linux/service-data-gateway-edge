@@ -7,7 +7,7 @@ target_include_directories(${APP_TARGET} PRIVATE
 )
 
 target_link_libraries(${APP_TARGET} PRIVATE
-    egw_core egw_transport egw_protocol egw_ptable egw_persist uv
+    egw_core egw_transport egw_protocol egw_ptable uv
 )
 
 set_target_properties(${APP_TARGET} PROPERTIES

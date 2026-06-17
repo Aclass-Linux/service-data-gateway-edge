@@ -3,7 +3,7 @@
 #include "config.h"
 #include "egw_serial.h"
 #include "egw_protocol.h"
-#include "egw_persist.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,7 +44,6 @@ static void do_poll_read(port_ctx_t *p);
 typedef struct {
     gw_engine_t     eng;          /* must be first (EGW_TRAN) */
     egw_conf_t     *cfg;
-    egw_persist_t  *persist;
     port_ctx_t      ports[MAX_PORTS];
     int             port_count;
     int             cur_port;
@@ -380,7 +379,6 @@ int egw_app_run(int argc, char *argv[])
     }
 
     egw_bus_subscribe(app.eng.bus, 0xFFFF, 0xFFFFFFFF, on_bus_data, NULL);
-    app.persist = egw_persist_create("gateway_persist.bin", 256);
 
     /* ── 定时器（采集调度） ──────────────────────── */
 
@@ -400,8 +398,6 @@ int egw_app_run(int argc, char *argv[])
     gw_engine_run(&app.eng);
 
     /* ── 清理 ────────────────────────────────────── */
-
-    egw_persist_destroy(app.persist);
 
     for (int i = 0; i < app.port_count; i++) {
         port_ctx_t *p = &app.ports[i];

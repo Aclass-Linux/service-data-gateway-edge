@@ -61,3 +61,103 @@
 - `egw_loop_t` 提供 poll/timer/signal 最小封装
 - 配置查询路径修正为 `"/modbus/serial_ports/N/path"`
 - `egw_value_t` 8 字节无判别式 union + seqlock 持久化槽位
+
+## 2026-06-17：协议校验在回调中执行的性能模型
+
+**背景**：确认在 uv_poll 回调中直接执行协议合法性校验（含 CRC-16）是否会造成事件循环阻塞。
+
+**分析方法**：从 CPU 指令级逐层拆解，以 Modbus RTU（极限 256 字节，查表 CRC-16）为靶子测算。
+
+### 时间预算
+
+| 级别 | 单次回调上限 | 校验耗时占比 |
+|------|-------------|-------------|
+| 及格线 | 1,000 μs | 0.1% |
+| 优秀线 | 100 μs | 1% |
+
+### 操作拆解
+
+| 操作 | 指令数 | 耗时 | 说明 |
+|------|--------|------|------|
+| 帧长度校验 | 1 条比较 | ~1 ns | 仅比较两个整数 |
+| 功能码合法性 | 2~3 条指令 | ~10 ns | 位图查表或 switch |
+| CRC-16（查表法，254 字节） | 254 × (读+异或+查表) | ~1,000 ns (1 μs) | 表 512B 常驻 L1 Cache |
+| **合计** | | **~1 μs** | |
+
+### 结论
+
+在主流嵌入式 Linux 网关（Cortex-A7 @ 1GHz）上，完整协议校验仅耗时约 **1 微秒**，占优秀线 100 μs 预算的 **1%**，完全不构成阻塞风险。即便串口 115200bps 满跑（~45 帧/秒），每秒校验总开销也仅 45 μs。
+
+### 验证的三条纪律（坑与对策）
+
+已在代码中落实，无违规：
+
+| 坑 | 后果 | 本工程做法 |
+|----|------|-----------|
+| 校验失败时 `printf`/`write` | 系统调用，飙升至几十 ms | `egw_proto_feed` 返回值后静默处理，不输出 |
+| CRC 表 Cache Miss | 256 次读 DDR（~50ns/次）→ 25 μs | 512B 查表法，结构紧凑，L1 Cache 常驻 |
+| 回调内加锁 | 锁竞争导致挂起 | 回调层无锁，不操作共享状态 |
+
+## 2026-06-17：点表格式从 .bin/mmpp 迁移到 SQLite
+
+### 动机
+
+放弃自研 `.bin` 二进制格式 + `mmap` 零拷贝方案，迁移到 SQLite 做配置持久化：
+
+- 跨架构结构体对齐（`__attribute__((packed))`）是静默 bug 来源，SQLite 消除了序列化/反序列化隐患
+- 运维阶段字段变更用 SQL `ALTER TABLE` 平滑迁移
+- 启动时全量 `SELECT` 加载到内存有序数组，运行时 `bsearch()` O(log n) 查询
+- 运行时值走纯内存结构（不持久化），persist 模块移除
+
+### 已实施
+
+| 操作 | 文件 |
+|------|------|
+| 删除 | `src/core/include/egw_ptable.h`（二进制格式定义） |
+| 删除 | `src/ptable/` 旧加载器（`egw_ptable_loader.c/h` + `CMakeLists.txt`） |
+| 删除 | `src/persist/` 模块（mmap 持久化，功能由 SQLite 替代） |
+| 清理 | `third-party/sqlite/` 子模块 → 仅保留 amalgamation（`sqlite3.c` + `sqlite3.h` + `sqlite3ext.h`） |
+| 新增 | `third-party/sqlite/CMakeLists.txt`：静态库，`SQLITE_THREADSAFE=0` |
+| 新增 | `src/ptable/egw_ptable.c`：SQLite 加载三表 → 内存有序数组 → `bsearch()` 查询 |
+| 新增 | `src/ptable/include/egw_ptable.h`：`egw_sb_point_t` / `egw_nb_point_t` / `egw_route_entry_t` |
+| 修改 | `src/app/gateway_app.c`：移除 persist 引用（include + 字段 + create/destroy） |
+
+### 数据模型
+
+启动流程：
+```
+egw_ptable_open("config.db")
+  → sqlite3_open_v2()
+  → CREATE TABLE IF NOT EXISTS (southbound / northbound / route)
+  → SELECT * → 内存有序数组 → qsort(device_id, sig_id)
+  → sqlite3_close()
+```
+
+运行时查询：
+```
+egw_ptable_sb_lookup(device_id, sig_id)
+  → bsearch() 二分查找，O(log n)
+```
+
+### 数据库 Schema
+
+三张表，均为单文件 `config.db`：
+
+```sql
+CREATE TABLE southbound (
+    device_id, sig_id, func_code, reg_addr, reg_count,
+    ctype, poll_interval_ms, flags, scale, offset, deadband,
+    PRIMARY KEY (device_id, sig_id)
+);
+
+CREATE TABLE northbound (
+    device_id, sig_id, func_code, reg_addr,
+    ctype, flags, scale, offset, deadband,
+    PRIMARY KEY (device_id, sig_id)
+);
+
+CREATE TABLE route (
+    device_id, sig_id, ctype,
+    PRIMARY KEY (device_id, sig_id)
+);
+```

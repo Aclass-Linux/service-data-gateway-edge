@@ -9,3 +9,7 @@
 [submodule "unity"]
 	url = https://github.com/Aclass-third-party/unity.git
 	path = third-party/unity
+
+[submodule "sqlite"]
+	url = https://github.com/Aclass-third-party/sqlite.git
+	path = third-party/sqlite

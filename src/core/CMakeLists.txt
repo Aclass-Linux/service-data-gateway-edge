@@ -13,7 +13,6 @@ set(core_inc
     include/egw_ctype.inc
     include/config.h
     include/egw_fsm.h
-    include/egw_ptable.h
     include/egw_bus.h
 )
 
