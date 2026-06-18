@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdio.h>
 
 typedef int32_t egw_err_t;
 
@@ -58,5 +59,48 @@ _Static_assert(sizeof(egw_value_t) == 8, "egw_value_t must be 8 bytes");
 
 #define EGW_EXPORT(func, prio) \
     static EGW_CONSTRUCTOR(prio) void func(void)
+
+/* ── 日志宏 ────────────────────────────────────────── */
+
+#define EGW_LOG_ERROR  0
+#define EGW_LOG_WARN   1
+#define EGW_LOG_INFO   2
+#define EGW_LOG_DEBUG  3
+
+#ifndef EGW_LOG_LEVEL
+    #ifdef NDEBUG
+        #define EGW_LOG_LEVEL  EGW_LOG_WARN
+    #else
+        #define EGW_LOG_LEVEL  EGW_LOG_DEBUG
+    #endif
+#endif
+
+#define EGW_LOGE(fmt, ...) \
+    do { \
+        if (EGW_LOG_ERROR <= EGW_LOG_LEVEL) { \
+            fprintf(stderr, "[E] " fmt "\n", ##__VA_ARGS__); \
+        } \
+    } while (0)
+
+#define EGW_LOGW(fmt, ...) \
+    do { \
+        if (EGW_LOG_WARN <= EGW_LOG_LEVEL) { \
+            fprintf(stderr, "[W] " fmt "\n", ##__VA_ARGS__); \
+        } \
+    } while (0)
+
+#define EGW_LOGI(fmt, ...) \
+    do { \
+        if (EGW_LOG_INFO <= EGW_LOG_LEVEL) { \
+            printf("[I] " fmt "\n", ##__VA_ARGS__); \
+        } \
+    } while (0)
+
+#define EGW_LOGD(fmt, ...) \
+    do { \
+        if (EGW_LOG_DEBUG <= EGW_LOG_LEVEL) { \
+            printf("[D] " fmt "\n", ##__VA_ARGS__); \
+        } \
+    } while (0)
 
 #endif /* EGW_DEFS_H */

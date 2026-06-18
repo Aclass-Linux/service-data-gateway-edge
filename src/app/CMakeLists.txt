@@ -1,13 +1,9 @@
 set(APP_TARGET ${ACLASS_PROJECT_NAME})
 
-add_executable(${APP_TARGET} main.c gateway_app.c gateway_engine.c)
-
-target_include_directories(${APP_TARGET} PRIVATE
-    ${CMAKE_SOURCE_DIR}/third-party/libuv/include
-)
+add_executable(${APP_TARGET} main.c gateway_app.c)
 
 target_link_libraries(${APP_TARGET} PRIVATE
-    egw_core egw_transport egw_protocol egw_ptable uv
+    egw_core egw_ptable
 )
 
 set_target_properties(${APP_TARGET} PROPERTIES

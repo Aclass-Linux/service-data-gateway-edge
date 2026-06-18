@@ -10,3 +10,6 @@
 [submodule "sqlite"]
 	path = third-party/sqlite
 	url = https://github.com/Aclass-third-party/sqlite.git
+[submodule "nanoModbus"]
+	path = third-party/nanoModbus
+	url = https://github.com/Aclass-third-party/nanoModbus.git

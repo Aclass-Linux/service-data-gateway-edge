@@ -15,3 +15,4 @@ out/
 *.dylib
 *.exe
 *.log
+*.db

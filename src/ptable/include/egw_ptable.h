@@ -1,15 +1,27 @@
 /**
  * @file egw_ptable.h
- * @brief 点表数据结构和查询 API
+ * @brief 点表数据库访问层
  *
- * 从 SQLite 数据库加载三张表（southbound / northbound / route），
- * 构建内存有序数组，通过二分查找提供 O(log n) 查询。
+ * ptable 层只认识 egw_manifest 一张清单表，
+ *
+ * 数据结构定义（egw_sb_point_t 等）保留在此供 App 层使用。
  */
 
 #ifndef EGW_PTABLE_H
 #define EGW_PTABLE_H
 
 #include "egw_defs.h"
+
+/* ── 元数据表名 ────────────────────────────────────── */
+
+#define EGW_MANIFEST_TABLE  "egw_manifest"
+
+/* ── 表发现 ──────────────────────────────────────────── */
+
+typedef struct {
+    char name[32];       /* 数据库中的表名 */
+    char protocol[32];   /* 协议（modbus_rtu / modbus_tcp / 空字符串） */
+} egw_ptable_tbl_t;
 
 /* ── 南向点表条目 ──────────────────────────────────── */
 
@@ -61,37 +73,23 @@ typedef struct {
 
 typedef struct egw_ptable egw_ptable_t;
 
-/** @brief 打开 SQLite 数据库，加载三表到内存
- *  @param db_path 数据库文件路径
- *  @return 点表句柄，失败返回 NULL */
+/* ── 生命周期 ───────────────────────────────────────── */
+
 egw_ptable_t *egw_ptable_open(const char *db_path);
+void          egw_ptable_close(egw_ptable_t *pt);
 
-/** @brief 关闭点表，释放所有内存 */
-void egw_ptable_close(egw_ptable_t *pt);
+/* ── 发现的业务表 ────────────────────────────────────── */
 
-/* ── 查询 ──────────────────────────────────────────── */
+uint32_t                egw_ptable_table_count(const egw_ptable_t *pt);
+const egw_ptable_tbl_t *egw_ptable_table_get(const egw_ptable_t *pt,
+                                               uint32_t index);
 
-/** @brief 按 (device_id, sig_id) 查找南向条目，O(log n) */
-const egw_sb_point_t *egw_ptable_sb_lookup(const egw_ptable_t *pt,
-                                            uint16_t device_id,
-                                            uint32_t sig_id);
+/* ── 文件头信息 ──────────────────────────────────────── */
 
-/** @brief 按 (device_id, sig_id) 查找北向条目，O(log n) */
-const egw_nb_point_t *egw_ptable_nb_lookup(const egw_ptable_t *pt,
-                                            uint16_t device_id,
-                                            uint32_t sig_id);
+typedef struct {
+    uint32_t schema_version;   /* 模式版本号 */
+} egw_ptable_head_t;
 
-/** @brief 按 (device_id, sig_id) 查找路由条目，O(log n) */
-const egw_route_entry_t *egw_ptable_route_lookup(const egw_ptable_t *pt,
-                                                  uint16_t device_id,
-                                                  uint32_t sig_id);
-
-/* ── 遍历 ──────────────────────────────────────────── */
-
-uint32_t egw_ptable_sb_count(const egw_ptable_t *pt);
-const egw_sb_point_t *egw_ptable_sb_at(const egw_ptable_t *pt, uint32_t index);
-
-uint32_t egw_ptable_nb_count(const egw_ptable_t *pt);
-const egw_nb_point_t *egw_ptable_nb_at(const egw_ptable_t *pt, uint32_t index);
+egw_err_t egw_ptable_head_get(const egw_ptable_t *pt, egw_ptable_head_t *head);
 
 #endif /* EGW_PTABLE_H */
