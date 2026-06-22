@@ -432,17 +432,126 @@ int sqlite3_step(sqlite3_stmt *stmt);
 int sqlite3_finalize(sqlite3_stmt *stmt);
 ```
 
-#### 读取结果列
-
-在 `step()` 返回 `SQLITE_ROW` 之后，用以下函数读取当前行的各列：
+#### step 的本质
 
 ```c
-sqlite3_column_int(stmt, iCol);      /* INTEGER → int */
-sqlite3_column_int64(stmt, iCol);    /* INTEGER → sqlite3_int64 */
-sqlite3_column_double(stmt, iCol);   /* REAL → double */
-sqlite3_column_text(stmt, iCol);     /* TEXT → const unsigned char * */
-sqlite3_column_bytes(stmt, iCol);    /* BLOB / TEXT 的大小 */
-sqlite3_column_type(stmt, iCol);     /* 返回列类型：SQLITE_INTEGER / FLOAT / TEXT / BLOB / NULL */
+int sqlite3_step(sqlite3_stmt *stmt);
+```
+
+`step` = **把游标往前推一行**。`prepare` 编译完 SQL 后，游标停在**第 0 行之前**（没有数据可读）。每次 `step` 做两件事：
+
+1. **往前走一行**（第一次 step 走到第 1 行）
+2. **看那一行有没有数据**：有 → `SQLITE_ROW`；没了（已越过最后一行）→ `SQLITE_DONE`
+
+```
+prepare 完后:
+  游标位置:  ← [第0行之前]
+  数据:        [行1] [行2] ... [行N]
+
+第1次 step:
+  游标位置:         [行1] ←
+  数据:             [行1] [行2] ... [行N]
+  返回: SQLITE_ROW  ✅ 可以读
+
+第2次 step:
+  游标位置:               [行2] ←
+  数据:             [行1] [行2] ... [行N]
+  返回: SQLITE_ROW  ✅
+
+第N+1次 step（最后一行之后）:
+  游标位置:                            ← [行N之后]
+  数据:             [行1] [行2] ... [行N]
+  返回: SQLITE_DONE ❌ 无数据了
+```
+
+类比文件读取：
+| SQLite | 文件 I/O |
+|--------|---------|
+| `prepare` | `fopen`（打开文件） |
+| `step` | `fgets` / `readdir`（读下一行/条目） |
+| `column_*` | 从刚读到的那一行取字段 |
+| `finalize` | `fclose`（关闭文件） |
+| `reset` | `rewind`（回到开头重新读） |
+
+**关键**：`column_*` 读取的是**当前游标位置的行**。`step` 推进游标后，上一行的列指针就失效了。
+
+#### `sqlite3_column_*` 函数族
+
+所有 `column_*` 函数的第一个参数都是 `sqlite3_stmt *`，第二个参数 `iCol` 是列索引（从 0 开始）。
+
+##### 取值函数
+
+```c
+/* 整数类型 */
+int              sqlite3_column_int(stmt, iCol);       /* 返回 int（32位），超出截断 */
+sqlite3_int64    sqlite3_column_int64(stmt, iCol);     /* 返回 64 位完整整数 */
+
+/* 浮点类型 */
+double           sqlite3_column_double(stmt, iCol);    /* 返回 double */
+
+/* 文本类型 */
+const unsigned char *sqlite3_column_text(stmt, iCol);  /* 返回 TEXT 列的 UTF-8 字符串指针 */
+
+/* BLOB 二进制 */
+const void      *sqlite3_column_blob(stmt, iCol);      /* 返回 BLOB 二进制数据指针 */
+
+/* 字节数 */
+int              sqlite3_column_bytes(stmt, iCol);     /* TEXT/BLOB 的字节数（不含 \0） */
+```
+
+##### 元数据函数
+
+```c
+int              sqlite3_column_type(stmt, iCol);      /* 列的类型：SQLITE_INTEGER / FLOAT / TEXT / BLOB / NULL */
+const char      *sqlite3_column_name(stmt, iCol);      /* 列名（SELECT 中的别名或原始列名） */
+const char      *sqlite3_column_decltype(stmt, iCol);  /* CREATE TABLE 时声明的类型 */
+int              sqlite3_column_count(stmt);           /* 当前结果集的列数 */
+```
+
+##### 返回值生命周期
+
+`column_*` 返回的指针（`text` / `blob` / `name`）指向 **SQLite 内部缓冲区**，在以下情况失效：
+
+| 操作 | 指针是否有效 |
+|------|-------------|
+| 再次 `sqlite3_step` 推进游标 | ❌ 上一行的指针全失效 |
+| 当前行内多次调 `column_*` | ✅ 同一行的指针保持有效 |
+| `sqlite3_finalize` | ❌ stmt 销毁，所有指针失效 |
+
+**需要长期持有的字符串必须 `strdup` 拷贝出来。**
+
+##### 类型自动转换
+
+SQLite 是**弱类型**——存的是什么类型不重要，`column_*` 会自动转换：
+
+| 读取函数 | 实际存的是 TEXT | 实际存的是 INTEGER |
+|----------|----------------|--------------------|
+| `column_text` | 直接返回字符串 | 自动转成字符串（"42"） |
+| `column_int` | 自动 `atoi`（"42" → 42） | 直接返回整数 |
+| `column_double` | 自动 `atof` | 自动转成 double |
+| `column_type` | 返回 `SQLITE_TEXT` | 返回 `SQLITE_INTEGER` |
+
+##### 项目中注册字段的用法
+
+```c
+/* 逐列匹配 */
+for (int f = 0; f < nfield; f++) {
+    int col = -1;
+    for (int c = 0; c < ncol; c++) {
+        if (strcmp(fields[f].name, sqlite3_column_name(stmt, c)) == 0) {
+            col = c;                          ← 按列名匹配，不依赖位置
+            break;
+        }
+    }
+    if (col < 0) { write_default(...); continue; }    ← 列不存在，用默认值
+
+    int actual = sqlite3_column_type(stmt, col);       ← 校验类型
+    if (actual == SQLITE_NULL) {
+        write_default(...);                            ← NULL 也用默认值
+    } else {
+        read_column(..., stmt, col);                   ← 按 ctype 调对应读取函数
+    }
+}
 ```
 
 #### 绑定参数（安全防注入）
@@ -631,3 +740,49 @@ ORDER BY tag;
 3. 不同结果走不同逻辑
 
 → **三条独立 SQL 是正确的选择**。性能无差别，可读性大幅提升。
+
+## 查看 .db 文件
+
+### 命令行工具 sqlite3
+
+```bash
+# 打开交互式 shell
+sqlite3 config.db
+
+# 一行命令查询
+sqlite3 config.db "SELECT * FROM egw_head"
+
+# 格式化输出
+sqlite3 -header -column config.db "SELECT * FROM egw_head"
+```
+
+### 常用命令
+
+```
+sqlite> .tables                ← 列出所有表
+sqlite> .schema egw_head       ← 查看表结构
+sqlite> .headers on            ← 显示列名
+sqlite> .mode column           ← 列对齐输出
+sqlite> .dump egw_head         ← 导出表为 SQL
+sqlite> .quit                  ← 退出
+```
+
+### 查看二进制文件头
+
+SQLite `.db` 文件前 16 字节固定为魔数，可用 `xxd`/`hexdump` 验证：
+
+```bash
+xxd config.db | head -3
+```
+
+前 16 字节：`53 51 4c 69 74 65 20 66 6f 72 6d 61 74 20 33 00`
+= ASCII `"SQLite format 3\0"`
+
+### 项目中头检测
+
+```c
+/* egw_head 根节点校验等价于魔数检测 */
+SELECT desc FROM egw_head WHERE id=1 AND type='HEAD'
+```
+
+如果 SQLite 文件能打开但查询不到根节点 → 文件不是合法的 egw 格式数据库。

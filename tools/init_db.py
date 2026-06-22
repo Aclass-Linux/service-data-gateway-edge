@@ -5,9 +5,17 @@ import sqlite3, sys
 
 SCHEMA_SQL = """
 CREATE TABLE egw_head (
-    schema_version INTEGER NOT NULL
+    id INTEGER PRIMARY KEY,
+    parent_id INTEGER NOT NULL DEFAULT 0,
+    type TEXT NOT NULL,
+    desc TEXT NOT NULL
 );
-INSERT INTO egw_head (schema_version) VALUES (1);
+INSERT INTO egw_head(id, parent_id, type, desc) VALUES (1, 0, 'HEAD', '校验');
+INSERT INTO egw_head(id, parent_id, type, desc) VALUES (2, 1, 'version', '1');
+INSERT INTO egw_head(id, parent_id, type, desc) VALUES (3, 1, 'thread', '1');
+INSERT INTO egw_head(id, parent_id, type, desc) VALUES (4, 3, 'protocol', 'egw_manifest');
+INSERT INTO egw_head(id, parent_id, type, desc) VALUES (5, 3, 'port', 'virtual');
+INSERT INTO egw_head(id, parent_id, type, desc) VALUES (6, 3, 'sqlite', '');
 
 CREATE TABLE egw_manifest (
     key   TEXT PRIMARY KEY,

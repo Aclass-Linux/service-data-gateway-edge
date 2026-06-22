@@ -49,6 +49,23 @@ typedef union {
 
 _Static_assert(sizeof(egw_value_t) == 8, "egw_value_t must be 8 bytes");
 
+/* ── 字段映射（DB 列 → C struct 偏移/类型/默认值） ── */
+
+typedef struct {
+    const char *name;
+    egw_ctype_t ctype;
+    size_t      offset;
+    size_t      size;
+    uint64_t    def_val;
+} egw_field_t;
+
+/* ── 一般数据类型 ──────────────────────────────── */
+
+typedef struct {
+    void   *data;
+    size_t  len;
+} egw_buf_t;
+
 /* ── 编译器构造函数属性 ──────────────────────────── */
 
 #if defined(__GNUC__) || defined(__clang__)

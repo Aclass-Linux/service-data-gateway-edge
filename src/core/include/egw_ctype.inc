@@ -23,5 +23,6 @@ EGW_CORE_TYPE(I64,  0x06, "int64")
 EGW_CORE_TYPE(U64,  0x07, "uint64")
 EGW_CORE_TYPE(F32,  0x08, "float32")
 EGW_CORE_TYPE(F64,  0x09, "float64")
+EGW_CORE_TYPE(STR,  0x0A, "string")
 
 #undef EGW_CORE_TYPE
