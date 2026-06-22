@@ -5,35 +5,35 @@
 #include <stdlib.h>
 
 static egw_field_t master_fields[] = {
-    {"device_id",  EGW_CTYPE_U16, offsetof(egw_modbus_master_t, device_id),  sizeof(uint16_t), .def_val=0},
-    {"sig_id",     EGW_CTYPE_U32, offsetof(egw_modbus_master_t, sig_id),     sizeof(uint32_t), .def_val=0},
-    {"func_code",  EGW_CTYPE_BOOL,offsetof(egw_modbus_master_t, func_code),  sizeof(uint8_t),  .def_val=3},
-    {"reg_addr",   EGW_CTYPE_U16, offsetof(egw_modbus_master_t, reg_addr),   sizeof(uint16_t), .def_val=0},
-    {"reg_count",  EGW_CTYPE_U16, offsetof(egw_modbus_master_t, reg_count),  sizeof(uint16_t), .def_val=1},
-    {"ctype",      EGW_CTYPE_BOOL,offsetof(egw_modbus_master_t, ctype),      sizeof(uint8_t),  .def_val=3},
-    {"poll_interval_ms", EGW_CTYPE_U32, offsetof(egw_modbus_master_t, poll_interval_ms), sizeof(uint32_t), .def_val=1000},
-    {"flags",      EGW_CTYPE_BOOL,offsetof(egw_modbus_master_t, flags),      sizeof(uint8_t),  .def_val=1},
-    {"scale",      EGW_CTYPE_F32, offsetof(egw_modbus_master_t, scale),      sizeof(float),    .def_val=0},
-    {"offset",     EGW_CTYPE_F32, offsetof(egw_modbus_master_t, offset),     sizeof(float),    .def_val=0},
-    {"deadband",   EGW_CTYPE_F32, offsetof(egw_modbus_master_t, deadband),   sizeof(float),    .def_val=0},
+    EGW_FIELD(egw_modbus_master_t, "device_id",        device_id,        EGW_CTYPE_U16),
+    EGW_FIELD(egw_modbus_master_t, "sig_id",           sig_id,           EGW_CTYPE_U32),
+    EGW_FIELD(egw_modbus_master_t, "func_code",        func_code,        EGW_CTYPE_BOOL),
+    EGW_FIELD(egw_modbus_master_t, "reg_addr",         reg_addr,         EGW_CTYPE_U16),
+    EGW_FIELD(egw_modbus_master_t, "reg_count",        reg_count,        EGW_CTYPE_U16),
+    EGW_FIELD(egw_modbus_master_t, "ctype",            ctype,            EGW_CTYPE_BOOL),
+    EGW_FIELD(egw_modbus_master_t, "poll_interval_ms", poll_interval_ms, EGW_CTYPE_U32),
+    EGW_FIELD(egw_modbus_master_t, "flags",            flags,            EGW_CTYPE_BOOL),
+    EGW_FIELD(egw_modbus_master_t, "scale",            scale,            EGW_CTYPE_F32),
+    EGW_FIELD(egw_modbus_master_t, "offset",           offset,           EGW_CTYPE_F32),
+    EGW_FIELD(egw_modbus_master_t, "deadband",         deadband,         EGW_CTYPE_F32),
 };
 
 static egw_field_t slave_fields[] = {
-    {"device_id",  EGW_CTYPE_U16, offsetof(egw_modbus_slave_t, device_id),  sizeof(uint16_t), .def_val=0},
-    {"sig_id",     EGW_CTYPE_U32, offsetof(egw_modbus_slave_t, sig_id),     sizeof(uint32_t), .def_val=0},
-    {"func_code",  EGW_CTYPE_BOOL,offsetof(egw_modbus_slave_t, func_code),  sizeof(uint8_t),  .def_val=3},
-    {"reg_addr",   EGW_CTYPE_U16, offsetof(egw_modbus_slave_t, reg_addr),   sizeof(uint16_t), .def_val=0},
-    {"ctype",      EGW_CTYPE_BOOL,offsetof(egw_modbus_slave_t, ctype),      sizeof(uint8_t),  .def_val=3},
-    {"flags",      EGW_CTYPE_BOOL,offsetof(egw_modbus_slave_t, flags),      sizeof(uint8_t),  .def_val=1},
-    {"scale",      EGW_CTYPE_F32, offsetof(egw_modbus_slave_t, scale),      sizeof(float),    .def_val=0},
-    {"offset",     EGW_CTYPE_F32, offsetof(egw_modbus_slave_t, offset),     sizeof(float),    .def_val=0},
-    {"deadband",   EGW_CTYPE_F32, offsetof(egw_modbus_slave_t, deadband),   sizeof(float),    .def_val=0},
+    EGW_FIELD(egw_modbus_slave_t, "device_id", device_id, EGW_CTYPE_U16),
+    EGW_FIELD(egw_modbus_slave_t, "sig_id",    sig_id,    EGW_CTYPE_U32),
+    EGW_FIELD(egw_modbus_slave_t, "func_code", func_code, EGW_CTYPE_BOOL),
+    EGW_FIELD(egw_modbus_slave_t, "reg_addr",  reg_addr,  EGW_CTYPE_U16),
+    EGW_FIELD(egw_modbus_slave_t, "ctype",     ctype,     EGW_CTYPE_BOOL),
+    EGW_FIELD(egw_modbus_slave_t, "flags",     flags,     EGW_CTYPE_BOOL),
+    EGW_FIELD(egw_modbus_slave_t, "scale",     scale,     EGW_CTYPE_F32),
+    EGW_FIELD(egw_modbus_slave_t, "offset",    offset,    EGW_CTYPE_F32),
+    EGW_FIELD(egw_modbus_slave_t, "deadband",  deadband,  EGW_CTYPE_F32),
 };
 
 static egw_field_t route_fields[] = {
-    {"device_id",  EGW_CTYPE_U16, offsetof(egw_route_entry_t, device_id),  sizeof(uint16_t), .def_val=0},
-    {"sig_id",     EGW_CTYPE_U32, offsetof(egw_route_entry_t, sig_id),     sizeof(uint32_t), .def_val=0},
-    {"ctype",      EGW_CTYPE_BOOL,offsetof(egw_route_entry_t, ctype),      sizeof(uint8_t),  .def_val=3},
+    EGW_FIELD(egw_route_entry_t, "device_id", device_id, EGW_CTYPE_U16),
+    EGW_FIELD(egw_route_entry_t, "sig_id",    sig_id,    EGW_CTYPE_U32),
+    EGW_FIELD(egw_route_entry_t, "ctype",     ctype,     EGW_CTYPE_BOOL),
 };
 
 static void register_table(egw_ptable_t *pt, const char *name)

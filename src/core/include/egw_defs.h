@@ -49,15 +49,22 @@ typedef union {
 
 _Static_assert(sizeof(egw_value_t) == 8, "egw_value_t must be 8 bytes");
 
-/* ── 字段映射（DB 列 → C struct 偏移/类型/默认值） ── */
+/* ── 字段映射（DB 列 → C struct 偏移/类型） ── */
 
 typedef struct {
     const char *name;
     egw_ctype_t ctype;
     size_t      offset;
-    size_t      size;
-    uint64_t    def_val;
 } egw_field_t;
+
+/** @brief 快捷声明 egw_field_t 条目
+ *  @param st       结构体类型
+ *  @param col_name SQL 列名字符串（如 "device_id"）
+ *  @param member   C 结构体成员名（裸标识符，给 offsetof 用）
+ *  @param ctype_   egw_ctype_t 枚举值
+ */
+#define EGW_FIELD(st, col_name, member, ctype_) \
+    { (col_name), (ctype_), offsetof(st, member) }
 
 /* ── 一般数据类型 ──────────────────────────────── */
 

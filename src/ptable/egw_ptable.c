@@ -16,7 +16,7 @@ struct egw_manifest {
 
 /* ── 内部：读取列值到结构体偏移 ──────────────────── */
 
-static void read_column(void *buf, size_t offset, size_t size,
+static void read_column(void *buf, size_t offset,
                          egw_ctype_t ctype,
                          sqlite3_stmt *stmt, int col)
 {
@@ -25,11 +25,6 @@ static void read_column(void *buf, size_t offset, size_t size,
     switch (ctype) {
     case EGW_CTYPE_F32:  *(float *)dest   = (float)sqlite3_column_double(stmt, col);          return;
     case EGW_CTYPE_F64:  *(double *)dest  = sqlite3_column_double(stmt, col);                  return;
-    case EGW_CTYPE_STR: {
-        const char *s = (const char *)sqlite3_column_text(stmt, col);
-        if (s) { snprintf((char *)dest, size, "%s", s); }
-        return;
-    }
     case EGW_CTYPE_BOOL: *(uint8_t *)dest  = (uint8_t)sqlite3_column_int64(stmt, col);  return;
     case EGW_CTYPE_U16:  *(uint16_t *)dest = (uint16_t)sqlite3_column_int64(stmt, col); return;
     case EGW_CTYPE_U32:  *(uint32_t *)dest = (uint32_t)sqlite3_column_int64(stmt, col); return;
@@ -37,6 +32,7 @@ static void read_column(void *buf, size_t offset, size_t size,
     case EGW_CTYPE_I16:  *(int16_t *)dest  = (int16_t)sqlite3_column_int64(stmt, col);  return;
     case EGW_CTYPE_I32:  *(int32_t *)dest  = (int32_t)sqlite3_column_int64(stmt, col);  return;
     case EGW_CTYPE_I64:  *(int64_t *)dest  = sqlite3_column_int64(stmt, col);            return;
+    default:             return;
     }
 }
 
@@ -448,7 +444,7 @@ egw_buf_t egw_ptable_register(egw_ptable_t *pt,
         do {
             for (int f = 0; f < nfield; f++) {
                 if (col_idx[f] < 0) { continue; }
-                read_column(row, flds[f].offset, flds[f].size,
+                read_column(row, flds[f].offset,
                             flds[f].ctype, stmt, col_idx[f]);
             }
             row += row_size;

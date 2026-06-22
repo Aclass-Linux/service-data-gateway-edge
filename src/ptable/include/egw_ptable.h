@@ -97,6 +97,7 @@ void            egw_manifest_free(egw_manifest_t *mh);
  * @param pt      点表句柄
  * @param table   表名
  * @param fields  {.data=egw_field_t[], .len=nfield*sizeof(egw_field_t)}
+ * @param row_size sizeof(row_struct)
  * @return        egw_buf_t {.data=行数组, .len=总字节数}
  */
 egw_buf_t egw_ptable_register(egw_ptable_t *pt,
