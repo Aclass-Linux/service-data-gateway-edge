@@ -1,5 +1,6 @@
 add_library(egw_transport STATIC
     egw_serial.c
+    egw_tcp.c
 )
 
 target_include_directories(egw_transport PUBLIC
@@ -11,4 +12,5 @@ target_link_libraries(egw_transport PUBLIC egw_core)
 install(TARGETS egw_transport
     LIBRARY   DESTINATION lib
     ARCHIVE   DESTINATION lib
+    FILE_SET HEADERS DESTINATION include
 )

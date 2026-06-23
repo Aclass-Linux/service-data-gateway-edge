@@ -1,48 +1,26 @@
 #include "egw_serial.h"
-#include <stdlib.h>
-#include <string.h>
 #include <fcntl.h>
 #include <termios.h>
 #include <unistd.h>
 #include <errno.h>
-#include <stddef.h>
 
-#define WRITE_BUF_SIZE  4096
+/* ── open ─────────────────────────────────────────────── */
 
-struct egw_serial {
-    int                 fd;
-    char               *path_copy;
-    egw_serial_params_t params;
-
-    unsigned char       write_buf[WRITE_BUF_SIZE];
-    size_t              write_len;
-};
-
-/* ── open ──────────────────────────────────────── */
-
-egw_err_t egw_serial_open(const egw_serial_params_t *params,
-                           egw_serial_t **tp)
+static egw_err_t open_serial(const void *params, int *out_fd)
 {
-    if (!params || !tp) {
+    const egw_serial_params_t *p = params;
+    if (!p || !out_fd) {
         return EGW_RET_CODE(ERR_INVALID_ARG);
     }
 
-    struct egw_serial *s = calloc(1, sizeof(*s));
-    if (!s) {
-        return EGW_RET_CODE(ERR_NOMEM);
-    }
-
-    s->fd = open(params->path, O_RDWR | O_NOCTTY | O_NONBLOCK);
-    if (s->fd < 0) {
-        free(s);
+    int fd = open(p->path, O_RDWR | O_NOCTTY | O_NONBLOCK);
+    if (fd < 0) {
         return EGW_RET_CODE(ERR_OPEN);
     }
 
-    /* termios */
     struct termios tio;
-    if (tcgetattr(s->fd, &tio) != 0) {
-        close(s->fd);
-        free(s);
+    if (tcgetattr(fd, &tio) != 0) {
+        close(fd);
         return EGW_RET_CODE(ERR_OPEN);
     }
 
@@ -50,41 +28,40 @@ egw_err_t egw_serial_open(const egw_serial_params_t *params,
     tio.c_cflag |= (CLOCAL | CREAD);
 
     speed_t baud_val = B9600;
-    switch (params->baud) {
-        case 9600:   baud_val = B9600;   break;
-        case 19200:  baud_val = B19200;  break;
-        case 38400:  baud_val = B38400;  break;
-        case 57600:  baud_val = B57600;  break;
-        case 115200: baud_val = B115200; break;
-        default:     baud_val = B9600;   break;
+    switch (p->baud) {
+    case 9600:   baud_val = B9600;   break;
+    case 19200:  baud_val = B19200;  break;
+    case 38400:  baud_val = B38400;  break;
+    case 57600:  baud_val = B57600;  break;
+    case 115200: baud_val = B115200; break;
     }
     cfsetispeed(&tio, baud_val);
     cfsetospeed(&tio, baud_val);
 
     tio.c_cflag &= ~CSIZE;
-    switch (params->data_bits) {
-        case 5: tio.c_cflag |= CS5; break;
-        case 6: tio.c_cflag |= CS6; break;
-        case 7: tio.c_cflag |= CS7; break;
-        case 8: default: tio.c_cflag |= CS8; break;
+    switch (p->data_bits) {
+    case 5: tio.c_cflag |= CS5; break;
+    case 6: tio.c_cflag |= CS6; break;
+    case 7: tio.c_cflag |= CS7; break;
+    case 8: default: tio.c_cflag |= CS8; break;
     }
 
-    switch (params->parity) {
-        case 'E': case 'e':
-            tio.c_cflag |= PARENB;
-            tio.c_cflag &= ~PARODD;
-            break;
-        case 'O': case 'o':
-            tio.c_cflag |= PARENB | PARODD;
-            break;
-        case 'N': default:
-            tio.c_cflag &= ~PARENB;
-            break;
+    switch (p->parity) {
+    case 'E': case 'e':
+        tio.c_cflag |= PARENB;
+        tio.c_cflag &= ~PARODD;
+        break;
+    case 'O': case 'o':
+        tio.c_cflag |= PARENB | PARODD;
+        break;
+    default:
+        tio.c_cflag &= ~PARENB;
+        break;
     }
 
-    switch (params->stop_bits) {
-        case 2: tio.c_cflag |= CSTOPB; break;
-        case 1: default: tio.c_cflag &= ~CSTOPB; break;
+    switch (p->stop_bits) {
+    case 2: tio.c_cflag |= CSTOPB; break;
+    default: tio.c_cflag &= ~CSTOPB; break;
     }
 
     tio.c_iflag &= ~(IXON | IXOFF | IXANY);
@@ -94,65 +71,38 @@ egw_err_t egw_serial_open(const egw_serial_params_t *params,
     tio.c_cc[VMIN]  = 1;
     tio.c_cc[VTIME] = 0;
 
-    if (tcsetattr(s->fd, TCSANOW, &tio) != 0) {
-        close(s->fd);
-        free(s);
+    if (tcsetattr(fd, TCSANOW, &tio) != 0) {
+        close(fd);
         return EGW_RET_CODE(ERR_OPEN);
     }
 
-    tcflush(s->fd, TCIOFLUSH);
+    tcflush(fd, TCIOFLUSH);
 
-    s->path_copy = strdup(params->path);
-    if (!s->path_copy) {
-        close(s->fd);
-        free(s);
-        return EGW_RET_CODE(ERR_NOMEM);
-    }
-
-    s->params = *params;
-    s->params.path = s->path_copy;
-
-    *tp = s;
+    *out_fd = fd;
     return EGW_OK;
 }
 
-/* ── close ─────────────────────────────────────── */
+/* ── close ────────────────────────────────────────────── */
 
-void egw_serial_close(egw_serial_t *tp)
+static void close_serial(int fd)
 {
-    if (!tp) {
-        return;
+    if (fd >= 0) {
+        close(fd);
     }
-
-    if (tp->fd >= 0) {
-        close(tp->fd);
-        tp->fd = -1;
-    }
-
-    free(tp->path_copy);
-    free(tp);
 }
 
-/* ── get_fd ────────────────────────────────────── */
+/* ── read ─────────────────────────────────────────────── */
 
-int egw_serial_get_fd(const egw_serial_t *tp)
+static egw_err_t read_serial(int fd, void *buf, size_t *out_len, size_t cap)
 {
-    return tp ? tp->fd : -1;
-}
-
-/* ── read ──────────────────────────────────────── */
-
-egw_err_t egw_serial_read(egw_serial_t *tp, void *buf,
-                           size_t *len, size_t cap)
-{
-    if (!tp || !buf || !len || cap == 0) {
+    if (!buf || !out_len || cap == 0) {
         return EGW_RET_CODE(ERR_INVALID_ARG);
     }
 
-    ssize_t n = read(tp->fd, buf, cap);
+    ssize_t n = read(fd, buf, cap);
     if (n < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            *len = 0;
+            *out_len = 0;
             return EGW_OK;
         }
         return EGW_RET_CODE(ERR_READ);
@@ -162,58 +112,41 @@ egw_err_t egw_serial_read(egw_serial_t *tp, void *buf,
         return EGW_RET_CODE(ERR_READ);
     }
 
-    *len = (size_t)n;
+    *out_len = (size_t)n;
     return EGW_OK;
 }
 
-/* ── write (enqueue) ───────────────────────────── */
+/* ── write ────────────────────────────────────────────── */
 
-egw_err_t egw_serial_write(egw_serial_t *tp, const void *buf, size_t len)
+static egw_err_t write_serial(int fd, const void *data, size_t *out_written, size_t len)
 {
-    if (!tp || !buf || len == 0) {
+    if (!data || !out_written || len == 0) {
         return EGW_RET_CODE(ERR_INVALID_ARG);
     }
 
-    if (len > WRITE_BUF_SIZE - tp->write_len) {
-        return EGW_RET_CODE(ERR_BUSY);
+    ssize_t n = write(fd, data, len);
+    if (n < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            *out_written = 0;
+            return EGW_OK;
+        }
+        return EGW_RET_CODE(ERR_WRITE);
     }
 
-    memcpy(tp->write_buf + tp->write_len, buf, len);
-    tp->write_len += len;
-
+    *out_written = (size_t)n;
     return EGW_OK;
 }
 
-/* ── flush ─────────────────────────────────────── */
+/* ── vtable ────────────────────────────────────────────── */
 
-egw_err_t egw_serial_flush(egw_serial_t *tp)
+static const struct egw_transport serial_vtable = {
+    .open  = open_serial,
+    .close = close_serial,
+    .read  = read_serial,
+    .write = write_serial,
+};
+
+const struct egw_transport *egw_serial_vtable(void)
 {
-    if (!tp) {
-        return EGW_RET_CODE(ERR_INVALID_ARG);
-    }
-
-    while (tp->write_len > 0)
-    {
-        ssize_t n = write(tp->fd, tp->write_buf, tp->write_len);
-        if (n < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                break;
-            }
-            return EGW_RET_CODE(ERR_WRITE);
-        }
-        if (n > 0) {
-            size_t remaining = tp->write_len - (size_t)n;
-            memmove(tp->write_buf, tp->write_buf + n, remaining);
-            tp->write_len = remaining;
-        }
-    }
-
-    return EGW_OK;
-}
-
-/* ── has_pending ────────────────────────────────── */
-
-bool egw_serial_has_pending(const egw_serial_t *tp)
-{
-    return tp ? (tp->write_len > 0) : false;
+    return &serial_vtable;
 }

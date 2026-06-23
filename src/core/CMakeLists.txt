@@ -2,6 +2,7 @@ set(core_src
     egw_err.c
     egw_bus.c
     egw_fsm.c
+    egw_crc.c
 )
 if(USE_JSON_CONFIG)
     list(APPEND core_src config.c)
@@ -14,6 +15,7 @@ set(core_inc
     include/config.h
     include/egw_fsm.h
     include/egw_bus.h
+    include/egw_crc.h
 )
 
 add_library(egw_core STATIC)

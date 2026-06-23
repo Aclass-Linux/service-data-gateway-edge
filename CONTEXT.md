@@ -20,7 +20,7 @@
 纯同步非阻塞 I/O 工具层，负责端口（串口/TCP）的 open/read/write/flush/close，不涉及协议解析。**不持有事件循环或任何句柄、不注册回调、不运行状态机**——只提供 fd 级别的字节流读写接口。App 层负责编排：通过 `egw_loop_t` 注册 fd 就绪 → 调用 transport read → 将字节喂入 Protocol FSM → 处理完整帧。当前实现：`egw_serial.c`。
 
 ### 传输连接 (Transport Connection)
-用 `egw_serial_t *`（不透明句柄）表示一个已打开的串口连接。由 `egw_serial_open()` 同步创建（open fd + termios 配置），内部持有 fd、参数副本和写缓冲区。关闭后句柄不可再用。
+用 `int fd` 表示一个已打开的传输连接。由 `egw_transport_t.open()` 同步创建，调用方持有 fd 并注册到事件循环。`read`/`write`/`close` 通过 vtable 函数作用于该 fd。传输层不持有每连接状态，不设内部缓冲区。
 
 ### 协议层 (Protocol)
 负责解析数据的语义和帧边界检测。以状态机驱动，每个连接独立一个 `egw_proto_ctx_t` 上下文。App 通过 `egw_proto_feed()` 推入原始字节，内部做帧定界 + CRC 校验，同步返回 FRAME_READY/NEED_MORE/FRAME_ERROR。当前实现 Modbus RTU 帧解析（`src/protocol/egw_protocol.c`）。

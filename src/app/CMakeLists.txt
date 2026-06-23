@@ -3,7 +3,7 @@ set(APP_TARGET ${ACLASS_PROJECT_NAME})
 add_executable(${APP_TARGET} main.c gateway_app.c)
 
 target_link_libraries(${APP_TARGET} PRIVATE
-    egw_core egw_protocol egw_ptable
+    egw_core egw_transport egw_protocol egw_ptable
 )
 
 set_target_properties(${APP_TARGET} PROPERTIES
