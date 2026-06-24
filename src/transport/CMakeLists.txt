@@ -1,6 +1,7 @@
 add_library(egw_transport STATIC
-    egw_serial.c
-    egw_tcp.c
+    egw_transport_serial.c
+    egw_transport_tcp.c
+    egw_transport_common.c
 )
 
 target_include_directories(egw_transport PUBLIC

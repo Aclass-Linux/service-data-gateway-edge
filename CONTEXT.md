@@ -17,10 +17,10 @@
 网关作为 Modbus 从设备的数据模型定义文件。描述如何把核心类型值编码到北向协议以及本侧的值处理：北向目标类型、**通道标识（位掩码：MQTT/SQLite/Lua...）**、MQTT topic、寄存器地址映射，以及**本侧转换系数**（scale/offset）和**可选的本侧死区**（deadband）。离线构建。
 
 ### 传输层 (Transport)
-纯同步非阻塞 I/O 工具层，负责端口（串口/TCP）的 open/read/write/flush/close，不涉及协议解析。**不持有事件循环或任何句柄、不注册回调、不运行状态机**——只提供 fd 级别的字节流读写接口。App 层负责编排：通过 `egw_loop_t` 注册 fd 就绪 → 调用 transport read → 将字节喂入 Protocol FSM → 处理完整帧。当前实现：`egw_serial.c`。
+纯同步非阻塞 I/O 工具层，负责端口（串口/TCP）的 open/read/write/flush/close，不涉及协议解析。**不持有事件循环或任何句柄、不注册回调、不运行状态机**——只提供 fd 级别的字节流读写接口。App 层负责编排：通过 `egw_loop_t` 注册 fd 就绪 → 调用 transport read → 将字节喂入 Protocol FSM → 处理完整帧。当前实现：`egw_transport_serial.c`, `egw_transport_tcp.c`。
 
 ### 传输连接 (Transport Connection)
-用 `int fd` 表示一个已打开的传输连接。由 `egw_transport_t.open()` 同步创建，调用方持有 fd 并注册到事件循环。`read`/`write`/`close` 通过 vtable 函数作用于该 fd。传输层不持有每连接状态，不设内部缓冲区。
+用 `egw_transport_handle_t *` 表示。由 `egw_transport_serial_open()` 或 `egw_transport_tcp_open()` 创建，通过 `egw_transport_read/write/close` 内联函数操作。句柄内部 `fd` 不对外暴露。
 
 ### 协议层 (Protocol)
 负责解析数据的语义和帧边界检测。以状态机驱动，每个连接独立一个 `egw_proto_ctx_t` 上下文。App 通过 `egw_proto_feed()` 推入原始字节，内部做帧定界 + CRC 校验，同步返回 FRAME_READY/NEED_MORE/FRAME_ERROR。当前实现 Modbus RTU 帧解析（`src/protocol/egw_protocol.c`）。

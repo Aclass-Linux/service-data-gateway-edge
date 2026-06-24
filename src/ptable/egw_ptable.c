@@ -14,27 +14,40 @@ struct egw_manifest {
     uint32_t          cap;
 };
 
-/* ── 内部：读取列值到结构体偏移 ──────────────────── */
+/* ── SQL 查询常量 ───────────────────────────────────── */
 
-static void read_column(void *buf, size_t offset,
-                         egw_ctype_t ctype,
-                         sqlite3_stmt *stmt, int col)
-{
-    void *dest = (uint8_t *)buf + offset;
+#define SQL_HEAD_ROOT           "SELECT desc FROM egw_head WHERE id=1 AND type='HEAD'"
+#define SQL_HEAD_VERSION        "SELECT desc FROM egw_head WHERE id=2 AND type='version'"
+#define SQL_THREAD_LIST         "SELECT id, desc FROM egw_head" \
+                                " WHERE parent_id=1 AND type='thread' ORDER BY id"
+#define SQL_NODE_LIST           "SELECT type, desc FROM egw_head" \
+                                " WHERE parent_id=?1 ORDER BY id"
 
-    switch (ctype) {
-    case EGW_CTYPE_F32:  *(float *)dest   = (float)sqlite3_column_double(stmt, col);          return;
-    case EGW_CTYPE_F64:  *(double *)dest  = sqlite3_column_double(stmt, col);                  return;
-    case EGW_CTYPE_BOOL: *(uint8_t *)dest  = (uint8_t)sqlite3_column_int64(stmt, col);  return;
-    case EGW_CTYPE_U16:  *(uint16_t *)dest = (uint16_t)sqlite3_column_int64(stmt, col); return;
-    case EGW_CTYPE_U32:  *(uint32_t *)dest = (uint32_t)sqlite3_column_int64(stmt, col); return;
-    case EGW_CTYPE_U64:  *(uint64_t *)dest = (uint64_t)sqlite3_column_int64(stmt, col); return;
-    case EGW_CTYPE_I16:  *(int16_t *)dest  = (int16_t)sqlite3_column_int64(stmt, col);  return;
-    case EGW_CTYPE_I32:  *(int32_t *)dest  = (int32_t)sqlite3_column_int64(stmt, col);  return;
-    case EGW_CTYPE_I64:  *(int64_t *)dest  = sqlite3_column_int64(stmt, col);            return;
-    default:             return;
-    }
-}
+#define SQL_MANIFEST_VALID      "SELECT m.key, m.value FROM %s m" \
+                                " WHERE EXISTS (" \
+                                "  SELECT 1 FROM sqlite_master" \
+                                "  WHERE type='table' AND name = m.key" \
+                                ")"
+#define SQL_MANIFEST_WARN       "SELECT key FROM %s WHERE key NOT IN (" \
+                                "  SELECT name FROM sqlite_master WHERE type='table'" \
+                                ")"
+#define SQL_MANIFEST_DEBUG      "SELECT name FROM sqlite_master WHERE type='table'" \
+                                " AND name NOT IN ('egw_head', '%s')" \
+                                " AND name NOT IN (SELECT key FROM %s)"
+
+#define SQL_COUNT_ROWS          "SELECT COUNT(*) FROM %s"
+#define SQL_SELECT_ALL          "SELECT * FROM %s"
+
+/* ── 节点类型映射 ────────────────────────────────────── */
+
+static const struct {
+    const char     *name;
+    egw_node_type_t type;
+} node_type_map[] = {
+    {"protocol", EGW_THREAD_NODE_PROTOCOL},
+    {"port",     EGW_THREAD_NODE_PORT},
+    {"sqlite",   EGW_THREAD_NODE_SQLITE},
+};
 
 /* ── 发现业务表的 exec 回调 ─────────────────────────── */
 
@@ -106,9 +119,7 @@ egw_ptable_t *egw_ptable_open(const char *db_path, int head_version)
 
     /* 校验版本是否匹配 */
     sqlite3_stmt *stmt = NULL;
-    rc = sqlite3_prepare_v2(pt->db,
-            "SELECT desc FROM egw_head WHERE id=2 AND type='version'",
-            -1, &stmt, NULL);
+    rc = sqlite3_prepare_v2(pt->db, SQL_HEAD_VERSION, -1, &stmt, NULL);
     if (rc != SQLITE_OK) {
         sqlite3_close(pt->db);
         free(pt);
@@ -138,16 +149,7 @@ void egw_ptable_close(egw_ptable_t *pt)
     free(pt);
 }
 
-/* ── head 树生命周期（独立于点表，不开 DB） ───────────── */
-
-static const struct {
-    const char     *name;
-    egw_node_type_t type;
-} node_type_map[] = {
-    {"protocol", EGW_THREAD_NODE_PROTOCOL},
-    {"port",     EGW_THREAD_NODE_PORT},
-    {"sqlite",   EGW_THREAD_NODE_SQLITE},
-};
+/* ── 节点类型查询 ────────────────────────────────────── */
 
 static egw_node_type_t name_to_type(const char *name)
 {
@@ -159,6 +161,61 @@ static egw_node_type_t name_to_type(const char *name)
     EGW_LOGW("unknown head node type: %s", name);
     return (egw_node_type_t)0;
 }
+
+/* ── 节点链表助手 ────────────────────────────────────── */
+
+static void free_node_list(egw_node_t *head)
+{
+    while (head) {
+        egw_node_t *next = head->next;
+        free(head);
+        head = next;
+    }
+}
+
+static egw_node_t *parse_node_row(sqlite3_stmt *s2)
+{
+    const char *type = (const char *)sqlite3_column_text(s2, 0);
+    const char *desc = (const char *)sqlite3_column_text(s2, 1);
+    if (!type) { return NULL; }
+
+    egw_node_type_t nt = name_to_type(type);
+    if (!nt) { return NULL; }
+
+    egw_node_t *n = calloc(1, sizeof(*n));
+    if (!n) { return NULL; }
+
+    n->type = nt;
+    if (desc) { snprintf(n->desc, sizeof(n->desc), "%s", desc); }
+    return n;
+}
+
+static egw_node_t *load_thread_nodes(sqlite3 *db, int thread_id)
+{
+    sqlite3_stmt *s2 = NULL;
+    if (sqlite3_prepare_v2(db, SQL_NODE_LIST, -1, &s2, NULL) != SQLITE_OK) {
+        return NULL;
+    }
+    sqlite3_bind_int(s2, 1, thread_id);
+
+    egw_node_t *head = NULL;
+    egw_node_t **tail = &head;
+
+    while (sqlite3_step(s2) == SQLITE_ROW) {
+        egw_node_t *n = parse_node_row(s2);
+        if (!n) {
+            free_node_list(head);
+            sqlite3_finalize(s2);
+            return NULL;
+        }
+        *tail = n;
+        tail = &n->next;
+    }
+    sqlite3_finalize(s2);
+    return head;
+}
+
+/* ── head 树生命周期 ────────────────────────────────── */
 
 egw_head_t *egw_ptable_head_load(const char *db_path)
 {
@@ -172,9 +229,7 @@ egw_head_t *egw_ptable_head_load(const char *db_path)
 
     /* 验证根节点 */
     sqlite3_stmt *stmt = NULL;
-    int rc = sqlite3_prepare_v2(db,
-             "SELECT desc FROM egw_head WHERE id=1 AND type='HEAD'",
-             -1, &stmt, NULL);
+    int rc = sqlite3_prepare_v2(db, SQL_HEAD_ROOT, -1, &stmt, NULL);
     if (rc != SQLITE_OK) {
         sqlite3_close(db);
         return NULL;
@@ -191,9 +246,7 @@ egw_head_t *egw_ptable_head_load(const char *db_path)
     stmt = NULL;
 
     /* 读取版本 */
-    rc = sqlite3_prepare_v2(db,
-            "SELECT desc FROM egw_head WHERE id=2 AND type='version'",
-            -1, &stmt, NULL);
+    rc = sqlite3_prepare_v2(db, SQL_HEAD_VERSION, -1, &stmt, NULL);
     if (rc == SQLITE_OK && sqlite3_step(stmt) == SQLITE_ROW) {
         head->version = sqlite3_column_int(stmt, 0);
     }
@@ -201,10 +254,7 @@ egw_head_t *egw_ptable_head_load(const char *db_path)
     stmt = NULL;
 
     /* 解析线程链表 */
-    rc = sqlite3_prepare_v2(db,
-            "SELECT id, desc FROM egw_head"
-            " WHERE parent_id=1 AND type='thread' ORDER BY id",
-            -1, &stmt, NULL);
+    rc = sqlite3_prepare_v2(db, SQL_THREAD_LIST, -1, &stmt, NULL);
     if (rc == SQLITE_OK) {
         egw_thread_t **t_tail = &head->threads;
 
@@ -216,36 +266,16 @@ egw_head_t *egw_ptable_head_load(const char *db_path)
             if (!th) { sqlite3_finalize(stmt); goto fail; }
             th->thread_id = tid;
             if (td) { snprintf(th->desc, sizeof(th->desc), "%s", td); }
-            *t_tail = th;
-            t_tail  = &th->next;
 
-            sqlite3_stmt *s2 = NULL;
-            if (sqlite3_prepare_v2(db,
-                    "SELECT type, desc FROM egw_head"
-                    " WHERE parent_id=?1 ORDER BY id",
-                    -1, &s2, NULL) == SQLITE_OK) {
-                sqlite3_bind_int(s2, 1, tid);
-
-                egw_node_t **n_tail = &th->nodes;
-                while (sqlite3_step(s2) == SQLITE_ROW) {
-                    const char *type = (const char *)sqlite3_column_text(s2, 0);
-                    const char *desc = (const char *)sqlite3_column_text(s2, 1);
-                    if (!type) { continue; }
-
-                    egw_node_type_t nt = name_to_type(type);
-                    if (!nt) { continue; }
-
-                    egw_node_t *n = calloc(1, sizeof(*n));
-                    if (!n) { sqlite3_finalize(s2); sqlite3_finalize(stmt); goto fail; }
-                    n->type = nt;
-                    if (desc) { snprintf(n->desc, sizeof(n->desc), "%s", desc); }
-
-                    *n_tail = n;
-                    n_tail  = &n->next;
-                }
-                sqlite3_finalize(s2);
+            th->nodes = load_thread_nodes(db, tid);
+            if (!th->nodes) {
+                free(th);
+                sqlite3_finalize(stmt);
+                goto fail;
             }
 
+            *t_tail = th;
+            t_tail  = &th->next;
         }
         sqlite3_finalize(stmt);
     }
@@ -265,13 +295,7 @@ void egw_ptable_head_free(egw_head_t *head)
 
     egw_thread_t *t = head->threads;
     while (t) {
-        egw_node_t *n = t->nodes;
-        while (n) {
-            egw_node_t *next = n->next;
-            free(n);
-            n = next;
-        }
-
+        free_node_list(t->nodes);
         egw_thread_t *next = t->next;
         free(t);
         t = next;
@@ -290,12 +314,7 @@ egw_manifest_t *egw_ptable_discover(egw_ptable_t *pt, const char *manifest)
     if (!mh) { return NULL; }
 
     char sql[384];
-    snprintf(sql, sizeof(sql),
-             "SELECT m.key, m.value FROM %s m"
-             " WHERE EXISTS ("
-             "  SELECT 1 FROM sqlite_master"
-             "  WHERE type='table' AND name = m.key"
-             ")", manifest);
+    snprintf(sql, sizeof(sql), SQL_MANIFEST_VALID, manifest);
 
     char *errmsg = NULL;
     int rc = sqlite3_exec(pt->db, sql, valid_cb, mh, &errmsg);
@@ -306,18 +325,11 @@ egw_manifest_t *egw_ptable_discover(egw_ptable_t *pt, const char *manifest)
         return NULL;
     }
 
-    snprintf(sql, sizeof(sql),
-             "SELECT key FROM %s WHERE key NOT IN ("
-             "  SELECT name FROM sqlite_master WHERE type='table'"
-             ")", manifest);
+    snprintf(sql, sizeof(sql), SQL_MANIFEST_WARN, manifest);
     rc = sqlite3_exec(pt->db, sql, warn_cb, NULL, &errmsg);
     if (rc != SQLITE_OK) { sqlite3_free(errmsg); }
 
-    snprintf(sql, sizeof(sql),
-             "SELECT name FROM sqlite_master WHERE type='table'"
-             " AND name NOT IN ('egw_head', '%s')"
-             " AND name NOT IN (SELECT key FROM %s)",
-             manifest, manifest);
+    snprintf(sql, sizeof(sql), SQL_MANIFEST_DEBUG, manifest, manifest);
     rc = sqlite3_exec(pt->db, sql, debug_cb, NULL, &errmsg);
     if (rc != SQLITE_OK) { sqlite3_free(errmsg); }
 
@@ -345,13 +357,34 @@ void egw_manifest_free(egw_manifest_t *mh)
 
 /* ── 行数据注册 ─────────────────────────────────────── */
 
-/** @brief 实现：SELECT * → 逐行 read_column → realloc 收集
+/**
+ * @brief 实现：SELECT * → 逐行 read_column → realloc 收集
  *
  * @param pt     DB 句柄
  * @param table  表名
  * @param fields 字段数组（buf.data + buf.len 编码）
  * @return       egw_buf_t，.data == NULL 表示失败
  */
+
+static void read_column(void *buf, size_t offset,
+                         egw_ctype_t ctype,
+                         sqlite3_stmt *stmt, int col)
+{
+    void *dest = (uint8_t *)buf + offset;
+
+    switch (ctype) {
+    case EGW_CTYPE_F32:  *(float *)dest   = (float)sqlite3_column_double(stmt, col);          return;
+    case EGW_CTYPE_F64:  *(double *)dest  = sqlite3_column_double(stmt, col);                  return;
+    case EGW_CTYPE_BOOL: *(uint8_t *)dest  = (uint8_t)sqlite3_column_int64(stmt, col);  return;
+    case EGW_CTYPE_U16:  *(uint16_t *)dest = (uint16_t)sqlite3_column_int64(stmt, col); return;
+    case EGW_CTYPE_U32:  *(uint32_t *)dest = (uint32_t)sqlite3_column_int64(stmt, col); return;
+    case EGW_CTYPE_U64:  *(uint64_t *)dest = (uint64_t)sqlite3_column_int64(stmt, col); return;
+    case EGW_CTYPE_I16:  *(int16_t *)dest  = (int16_t)sqlite3_column_int64(stmt, col);  return;
+    case EGW_CTYPE_I32:  *(int32_t *)dest  = (int32_t)sqlite3_column_int64(stmt, col);  return;
+    case EGW_CTYPE_I64:  *(int64_t *)dest  = sqlite3_column_int64(stmt, col);            return;
+    default:             return;
+    }
+}
 
 /** @brief 首行解析：列名 → 列号，并校验类型。返回缺失字段数。 */
 static int resolve_cols(sqlite3_stmt *stmt,
@@ -406,7 +439,7 @@ egw_buf_t egw_ptable_register(egw_ptable_t *pt,
 
     /* 先数行数，一次分配 */
     char sql[128];
-    snprintf(sql, sizeof(sql), "SELECT COUNT(*) FROM %s", table);
+    snprintf(sql, sizeof(sql), SQL_COUNT_ROWS, table);
 
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(pt->db, sql, -1, &stmt, NULL) != SQLITE_OK) {
@@ -423,7 +456,7 @@ egw_buf_t egw_ptable_register(egw_ptable_t *pt,
     if (!buf) { return result; }
 
     /* 再查数据 */
-    snprintf(sql, sizeof(sql), "SELECT * FROM %s", table);
+    snprintf(sql, sizeof(sql), SQL_SELECT_ALL, table);
     if (sqlite3_prepare_v2(pt->db, sql, -1, &stmt, NULL) != SQLITE_OK) {
         EGW_LOGE("register '%s' prepare failed", table);
         free(buf);

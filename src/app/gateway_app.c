@@ -1,7 +1,7 @@
 #include "gateway_app.h"
 #include "egw_ptable.h"
 #include "egw_modbus.h"
-#include "egw_serial.h"
+#include "egw_transport.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -112,27 +112,26 @@ static void on_port_node(egw_node_t *n)
     EGW_LOGI("  port = %s", path);
     if (!n->desc[0]) { return; }
 
-    const struct egw_transport *vt = egw_serial_vtable();
-    egw_serial_params_t sp = {
+    egw_transport_serial_params_t sp = {
         .path      = n->desc,
         .baud      = 9600,
         .parity    = 'N',
         .data_bits = 8,
         .stop_bits = 1,
     };
-    int fd = -1;
-    egw_err_t err = vt->open(&sp, &fd);
-    if (err != EGW_OK || fd < 0) {
-        EGW_LOGE("    open failed: err=%d", (int)err);
+
+    struct egw_transport_handle *h = egw_transport_serial_open(&sp);
+    if (!h) {
+        EGW_LOGE("    open failed");
         return;
     }
 
-    EGW_LOGI("    opened fd=%d", fd);
+    EGW_LOGI("    opened");
     uint8_t buf[32];
     size_t rlen = 0;
-    err = vt->read(fd, buf, &rlen, sizeof(buf));
+    egw_err_t err = egw_transport_read(h, buf, &rlen, sizeof(buf));
     EGW_LOGI("    read -> err=%d len=%zu", (int)err, rlen);
-    vt->close(fd);
+    egw_transport_close(h);
 }
 
 int egw_app_run(int argc, char *argv[])
