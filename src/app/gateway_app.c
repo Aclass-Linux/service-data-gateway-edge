@@ -8,6 +8,80 @@
 #include <stdlib.h>
 #include <uv.h>
 
+/* ── 点表配置结构体（协议层只推原始寄存器，语义在 app 层） ─ */
+
+#define EGW_MODBUS_MASTER_ENABLED           (1u << 0)
+#define EGW_MODBUS_MASTER_HAS_SCALE_OFFSET  (1u << 1)
+#define EGW_MODBUS_MASTER_HAS_DEADBAND      (1u << 2)
+
+typedef struct {
+    uint16_t device_id;
+    uint32_t sig_id;
+    uint8_t  func_code;
+    uint16_t reg_addr;
+    uint16_t reg_count;
+    uint8_t  ctype;
+    uint32_t poll_interval_ms;
+    uint8_t  flags;
+    float    scale;
+    float    offset;
+    float    deadband;
+} egw_modbus_master_t;
+
+#define EGW_MODBUS_SLAVE_ENABLED           (1u << 0)
+#define EGW_MODBUS_SLAVE_HAS_SCALE_OFFSET  (1u << 1)
+#define EGW_MODBUS_SLAVE_HAS_DEADBAND      (1u << 2)
+
+typedef struct {
+    uint16_t device_id;
+    uint32_t sig_id;
+    uint8_t  func_code;
+    uint16_t reg_addr;
+    uint8_t  ctype;
+    uint8_t  flags;
+    float    scale;
+    float    offset;
+    float    deadband;
+} egw_modbus_slave_t;
+
+static const egw_field_t s_master_fields[] = {
+    EGW_FIELD(egw_modbus_master_t, "device_id",        device_id,        EGW_CTYPE_U16),
+    EGW_FIELD(egw_modbus_master_t, "sig_id",           sig_id,           EGW_CTYPE_U32),
+    EGW_FIELD(egw_modbus_master_t, "func_code",        func_code,        EGW_CTYPE_BOOL),
+    EGW_FIELD(egw_modbus_master_t, "reg_addr",         reg_addr,         EGW_CTYPE_U16),
+    EGW_FIELD(egw_modbus_master_t, "reg_count",        reg_count,        EGW_CTYPE_U16),
+    EGW_FIELD(egw_modbus_master_t, "ctype",            ctype,            EGW_CTYPE_BOOL),
+    EGW_FIELD(egw_modbus_master_t, "poll_interval_ms", poll_interval_ms, EGW_CTYPE_U32),
+    EGW_FIELD(egw_modbus_master_t, "flags",            flags,            EGW_CTYPE_BOOL),
+    EGW_FIELD(egw_modbus_master_t, "scale",            scale,            EGW_CTYPE_F32),
+    EGW_FIELD(egw_modbus_master_t, "offset",           offset,           EGW_CTYPE_F32),
+    EGW_FIELD(egw_modbus_master_t, "deadband",         deadband,         EGW_CTYPE_F32),
+};
+
+static const egw_field_t s_slave_fields[] = {
+    EGW_FIELD(egw_modbus_slave_t, "device_id", device_id, EGW_CTYPE_U16),
+    EGW_FIELD(egw_modbus_slave_t, "sig_id",    sig_id,    EGW_CTYPE_U32),
+    EGW_FIELD(egw_modbus_slave_t, "func_code", func_code, EGW_CTYPE_BOOL),
+    EGW_FIELD(egw_modbus_slave_t, "reg_addr",  reg_addr,  EGW_CTYPE_U16),
+    EGW_FIELD(egw_modbus_slave_t, "ctype",     ctype,     EGW_CTYPE_BOOL),
+    EGW_FIELD(egw_modbus_slave_t, "flags",     flags,     EGW_CTYPE_BOOL),
+    EGW_FIELD(egw_modbus_slave_t, "scale",     scale,     EGW_CTYPE_F32),
+    EGW_FIELD(egw_modbus_slave_t, "offset",    offset,    EGW_CTYPE_F32),
+    EGW_FIELD(egw_modbus_slave_t, "deadband",  deadband,  EGW_CTYPE_F32),
+};
+
+static const egw_field_t *egw_modbus_master_fields(size_t *count)
+{
+    if (count) { *count = sizeof(s_master_fields) / sizeof(s_master_fields[0]); }
+    return s_master_fields;
+}
+
+static const egw_field_t *egw_modbus_slave_fields(size_t *count)
+{
+    if (count) { *count = sizeof(s_slave_fields) / sizeof(s_slave_fields[0]); }
+    return s_slave_fields;
+}
+
 static void register_table(egw_ptable_t *pt, const char *name)
 {
     const egw_field_t *flds = NULL;

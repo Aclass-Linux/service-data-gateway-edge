@@ -58,8 +58,8 @@ struct egw_modbus_req_slot {
 /* ── Client（主站） ──────────────────────────────────── */
 
 struct egw_modbus_client {
-    egw_modbus_ser_wrap_fn    wrap;
-    egw_modbus_ser_unwrap_fn  unwrap;
+    egw_modbus_wrap_fn         wrap;
+    egw_modbus_unwrap_fn      unwrap;
 
     egw_modbus_req_slot_t    *slots;       /* 请求链表 */
     egw_modbus_req_slot_t    *current;     /* 当前正等待响应的 slot */
@@ -85,12 +85,12 @@ egw_modbus_client_t *egw_modbus_client_create(egw_modbus_transport_t transport,
 
     switch (transport) {
     case EGW_MODBUS_RTU:
-        c->wrap   = egw_modbus_ser_wrap_rtu;
-        c->unwrap = egw_modbus_ser_unwrap_rtu;
+        c->wrap   = egw_modbus_wrap_rtu;
+        c->unwrap = egw_modbus_unwrap_rtu;
         break;
     case EGW_MODBUS_TCP:
-        c->wrap   = egw_modbus_ser_wrap_tcp;
-        c->unwrap = egw_modbus_ser_unwrap_tcp;
+        c->wrap   = egw_modbus_wrap_tcp;
+        c->unwrap = egw_modbus_unwrap_tcp;
         break;
     }
 

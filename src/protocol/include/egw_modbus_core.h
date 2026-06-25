@@ -63,52 +63,6 @@ typedef enum {
     EGW_MODBUS_TCP = 2,  /**< TCP/IP（MBAP 头部，无 CRC） */
 } egw_modbus_transport_t;
 
-/* ── 点表配置结构体 ──────────────────────────────────── */
-
-#define EGW_MODBUS_MASTER_ENABLED           (1u << 0)  /**< 该采集点启用 */
-#define EGW_MODBUS_MASTER_HAS_SCALE_OFFSET  (1u << 1)  /**< 有缩放/偏移 */
-#define EGW_MODBUS_MASTER_HAS_DEADBAND      (1u << 2)  /**< 有死区 */
-
-/** @brief 南向采集点（主站 → 从站）点表行 */
-typedef struct {
-    uint16_t device_id;          /**< 从站地址 */
-    uint32_t sig_id;             /**< 信号 ID（点表主键） */
-    uint8_t  func_code;          /**< 功能码 */
-    uint16_t reg_addr;           /**< 寄存器起始地址 */
-    uint16_t reg_count;          /**< 寄存器数量 */
-    uint8_t  ctype;              /**< egw_ctype_t，值类型 */
-    uint32_t poll_interval_ms;   /**< 轮询间隔（毫秒） */
-    uint8_t  flags;              /**< EGW_MODBUS_MASTER_* 组合位 */
-    float    scale;              /**< 缩放系数 */
-    float    offset;             /**< 偏移 */
-    float    deadband;           /**< 死区 */
-} egw_modbus_master_t;
-
-#define EGW_MODBUS_SLAVE_ENABLED           (1u << 0)
-#define EGW_MODBUS_SLAVE_HAS_SCALE_OFFSET  (1u << 1)
-#define EGW_MODBUS_SLAVE_HAS_DEADBAND      (1u << 2)
-
-/** @brief 北向服务点（主站 → 本机）点表行 */
-typedef struct {
-    uint16_t device_id;
-    uint32_t sig_id;
-    uint8_t  func_code;
-    uint16_t reg_addr;
-    uint8_t  ctype;
-    uint8_t  flags;
-    float    scale;
-    float    offset;
-    float    deadband;
-} egw_modbus_slave_t;
-
-/* ── 点表字段访问器 ──────────────────────────────────── */
-
-/** @brief 获取南向采集点字段表（供 ptable 注册时复用） */
-const egw_field_t *egw_modbus_master_fields(size_t *count);
-
-/** @brief 获取北向服务点字段表（供 ptable 注册时复用） */
-const egw_field_t *egw_modbus_slave_fields(size_t *count);
-
 /* ── PDU 构建（传输无关） ────────────────────────────── */
 
 /** @brief 构建读请求 PDU（FC01-04） */
@@ -187,32 +141,25 @@ egw_err_t egw_modbus_unwrap_frame(const uint8_t *frame, size_t len,
                                    uint8_t *unit_id_out,
                                    uint8_t *pdu_out, size_t *pdu_len_out);
 
-/* ── Server/Client 输运适配器 ────────────────────────── */
-/* 抹掉 transport/tid 参数，通过函数指针注入 RTU/TCP 具体行为 */
+/* ── 输运层打包/解包适配器 ────────────────────────── */
 
-/** @brief 输运层帧打包函数（注入给 Server/Client） */
-typedef size_t (*egw_modbus_ser_wrap_fn)(uint8_t *buf, uint8_t unit_id,
-                                          const uint8_t *pdu, size_t pdu_len);
+typedef size_t (*egw_modbus_wrap_fn)(uint8_t *buf, uint8_t unit_id,
+                                      const uint8_t *pdu, size_t pdu_len);
 
-/** @brief 输运层帧解包函数（注入给 Server/Client） */
-typedef egw_err_t (*egw_modbus_ser_unwrap_fn)(const uint8_t *frame, size_t len,
-                                               uint8_t *unit_id_out,
-                                               uint8_t *pdu_out,
-                                               size_t *pdu_len_out);
+typedef egw_err_t (*egw_modbus_unwrap_fn)(const uint8_t *frame, size_t len,
+                                           uint8_t *unit_id_out,
+                                           uint8_t *pdu_out,
+                                           size_t *pdu_len_out);
 
-/** @brief RTU 帧打包（抹掉 transport/tid 的便利函数） */
-size_t egw_modbus_ser_wrap_rtu(uint8_t *buf, uint8_t unit_id,
-                                const uint8_t *pdu, size_t pdu_len);
-/** @brief TCP 帧打包（抹掉 transport/tid 的便利函数） */
-size_t egw_modbus_ser_wrap_tcp(uint8_t *buf, uint8_t unit_id,
-                                const uint8_t *pdu, size_t pdu_len);
-/** @brief RTU 帧解包（抹掉 transport 的便利函数） */
-egw_err_t egw_modbus_ser_unwrap_rtu(const uint8_t *frame, size_t len,
-                                     uint8_t *unit_id_out,
-                                     uint8_t *pdu_out, size_t *pdu_len_out);
-/** @brief TCP 帧解包（抹掉 transport 的便利函数） */
-egw_err_t egw_modbus_ser_unwrap_tcp(const uint8_t *frame, size_t len,
-                                     uint8_t *unit_id_out,
-                                     uint8_t *pdu_out, size_t *pdu_len_out);
+size_t egw_modbus_wrap_rtu(uint8_t *buf, uint8_t unit_id,
+                            const uint8_t *pdu, size_t pdu_len);
+size_t egw_modbus_wrap_tcp(uint8_t *buf, uint8_t unit_id,
+                            const uint8_t *pdu, size_t pdu_len);
+egw_err_t egw_modbus_unwrap_rtu(const uint8_t *frame, size_t len,
+                                 uint8_t *unit_id_out,
+                                 uint8_t *pdu_out, size_t *pdu_len_out);
+egw_err_t egw_modbus_unwrap_tcp(const uint8_t *frame, size_t len,
+                                 uint8_t *unit_id_out,
+                                 uint8_t *pdu_out, size_t *pdu_len_out);
 
 #endif /* EGW_MODBUS_CORE_H */

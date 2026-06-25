@@ -247,49 +247,6 @@ egw_err_t egw_modbus_parse_request(const uint8_t *pdu, size_t len,
     }
     return EGW_RET_CODE(ERR_INVALID_ARG);
 }
-/* ── 点表字段表（供 ptable 注册时复用） ──────────────── */
-
-static const egw_field_t s_master_fields[] = {
-    EGW_FIELD(egw_modbus_master_t, "device_id",        device_id,        EGW_CTYPE_U16),
-    EGW_FIELD(egw_modbus_master_t, "sig_id",           sig_id,           EGW_CTYPE_U32),
-    EGW_FIELD(egw_modbus_master_t, "func_code",        func_code,        EGW_CTYPE_BOOL),
-    EGW_FIELD(egw_modbus_master_t, "reg_addr",         reg_addr,         EGW_CTYPE_U16),
-    EGW_FIELD(egw_modbus_master_t, "reg_count",        reg_count,        EGW_CTYPE_U16),
-    EGW_FIELD(egw_modbus_master_t, "ctype",            ctype,            EGW_CTYPE_BOOL),
-    EGW_FIELD(egw_modbus_master_t, "poll_interval_ms", poll_interval_ms, EGW_CTYPE_U32),
-    EGW_FIELD(egw_modbus_master_t, "flags",            flags,            EGW_CTYPE_BOOL),
-    EGW_FIELD(egw_modbus_master_t, "scale",            scale,            EGW_CTYPE_F32),
-    EGW_FIELD(egw_modbus_master_t, "offset",           offset,           EGW_CTYPE_F32),
-    EGW_FIELD(egw_modbus_master_t, "deadband",         deadband,         EGW_CTYPE_F32),
-};
-
-static const egw_field_t s_slave_fields[] = {
-    EGW_FIELD(egw_modbus_slave_t, "device_id", device_id, EGW_CTYPE_U16),
-    EGW_FIELD(egw_modbus_slave_t, "sig_id",    sig_id,    EGW_CTYPE_U32),
-    EGW_FIELD(egw_modbus_slave_t, "func_code", func_code, EGW_CTYPE_BOOL),
-    EGW_FIELD(egw_modbus_slave_t, "reg_addr",  reg_addr,  EGW_CTYPE_U16),
-    EGW_FIELD(egw_modbus_slave_t, "ctype",     ctype,     EGW_CTYPE_BOOL),
-    EGW_FIELD(egw_modbus_slave_t, "flags",     flags,     EGW_CTYPE_BOOL),
-    EGW_FIELD(egw_modbus_slave_t, "scale",     scale,     EGW_CTYPE_F32),
-    EGW_FIELD(egw_modbus_slave_t, "offset",    offset,    EGW_CTYPE_F32),
-    EGW_FIELD(egw_modbus_slave_t, "deadband",  deadband,  EGW_CTYPE_F32),
-};
-
-const egw_field_t *egw_modbus_master_fields(size_t *count)
-{
-    if (count) {
-        *count = sizeof(s_master_fields) / sizeof(s_master_fields[0]);
-    }
-    return s_master_fields;
-}
-
-const egw_field_t *egw_modbus_slave_fields(size_t *count)
-{
-    if (count) {
-        *count = sizeof(s_slave_fields) / sizeof(s_slave_fields[0]);
-    }
-    return s_slave_fields;
-}
 
 /* ── 帧封装／解封装（输运层） ──────────────────────────── */
 
@@ -361,32 +318,31 @@ egw_err_t egw_modbus_unwrap_frame(const uint8_t *frame, size_t len,
     }
     return EGW_RET_CODE(ERR_INVALID_ARG);
 }
+/* ── 输运打包/解包适配器 ──────────────────────────── */
 
-/* ── 输运适配器（抹掉 transport/tid 参数） ──────────── */
-
-size_t egw_modbus_ser_wrap_rtu(uint8_t *buf, uint8_t unit_id,
-                                const uint8_t *pdu, size_t pdu_len)
+size_t egw_modbus_wrap_rtu(uint8_t *buf, uint8_t unit_id,
+                            const uint8_t *pdu, size_t pdu_len)
 {
     return egw_modbus_wrap_pdu(buf, EGW_MODBUS_RTU, unit_id, pdu, pdu_len, 0);
 }
 
-size_t egw_modbus_ser_wrap_tcp(uint8_t *buf, uint8_t unit_id,
-                                const uint8_t *pdu, size_t pdu_len)
+size_t egw_modbus_wrap_tcp(uint8_t *buf, uint8_t unit_id,
+                            const uint8_t *pdu, size_t pdu_len)
 {
     return egw_modbus_wrap_pdu(buf, EGW_MODBUS_TCP, unit_id, pdu, pdu_len, 0);
 }
 
-egw_err_t egw_modbus_ser_unwrap_rtu(const uint8_t *frame, size_t len,
-                                     uint8_t *unit_id_out,
-                                     uint8_t *pdu_out, size_t *pdu_len_out)
+egw_err_t egw_modbus_unwrap_rtu(const uint8_t *frame, size_t len,
+                                 uint8_t *unit_id_out,
+                                 uint8_t *pdu_out, size_t *pdu_len_out)
 {
     return egw_modbus_unwrap_frame(frame, len, EGW_MODBUS_RTU,
                                     unit_id_out, pdu_out, pdu_len_out);
 }
 
-egw_err_t egw_modbus_ser_unwrap_tcp(const uint8_t *frame, size_t len,
-                                     uint8_t *unit_id_out,
-                                     uint8_t *pdu_out, size_t *pdu_len_out)
+egw_err_t egw_modbus_unwrap_tcp(const uint8_t *frame, size_t len,
+                                 uint8_t *unit_id_out,
+                                 uint8_t *pdu_out, size_t *pdu_len_out)
 {
     return egw_modbus_unwrap_frame(frame, len, EGW_MODBUS_TCP,
                                     unit_id_out, pdu_out, pdu_len_out);
