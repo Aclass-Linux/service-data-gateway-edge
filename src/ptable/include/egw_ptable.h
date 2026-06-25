@@ -101,8 +101,17 @@ void            egw_manifest_free(egw_manifest_t *mh);
  * @return        egw_buf_t {.data=行数组, .len=总字节数}
  */
 egw_buf_t egw_ptable_register(egw_ptable_t *pt,
-                               const char *table,
-                               egw_buf_t fields,
-                               size_t row_size);
+                                const char *table,
+                                egw_buf_t fields,
+                                size_t row_size);
+
+/* ── 路由表字段访问器 ────────────────────────────────── */
+
+/**
+ * @brief 路由表字段表（协议无关，供 ptable 注册时复用）
+ * @param count 输出字段数
+ * @return 字段数组指针（指向静态常量数据，无需释放）
+ */
+const egw_field_t *egw_ptable_route_fields(size_t *count);
 
 #endif /* EGW_PTABLE_H */

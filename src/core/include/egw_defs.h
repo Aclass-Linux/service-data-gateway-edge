@@ -73,6 +73,14 @@ typedef struct {
     size_t  len;
 } egw_buf_t;
 
+/* ── 路由表行（南向 ↔ 北向信号映射，协议无关） ──────── */
+
+typedef struct {
+    uint16_t device_id;
+    uint32_t sig_id;
+    uint8_t  ctype;
+} egw_route_entry_t;
+
 /* ── 编译器构造函数属性 ──────────────────────────── */
 
 #if defined(__GNUC__) || defined(__clang__)

@@ -1,5 +1,7 @@
 # 实施记录
 
+> 早期记录（2026-06-15 ~ 06-17）保留为历史参考。后续模块已大幅重构，详见末尾最新记录。
+
 ## 2026-06-15：Core 事件循环 + App FSM + Protocol FSM
 
 ### egw_loop_t 扩展（ADR-0006）
@@ -16,6 +18,8 @@
 
 修复：`egw_loop_run()` 在 `uv_stop()` 后误报 `EGW_ERR_LOOP_RUN` → 改为检查 `should_stop` 标志。（已被后续简化移除：`UV_RUN_DEFAULT` 返回值 >0 必定来自 uv_stop，`should_stop` 冗余。）
 
+> **后续变更**：`egw_loop_t` 封装已移除（DS-006 废弃）。App 层直接使用 libuv。
+
 ### Protocol FSM：Modbus RTU 帧解析
 
 `egw_proto_ctx_t` 每端口独立上下文。`egw_proto_feed(ctx, data, len)` 推入字节，内部基于功能码判定期望帧长度 + CRC-16 校验，同步返回：
@@ -26,22 +30,26 @@
 | `EGW_PROTO_NEED_MORE` | 等待更多字节 |
 | `EGW_PROTO_FRAME_ERROR` | 帧异常，内部已自动重置 |
 
+> **后续变更**：增加 reserve/commit 零拷贝路径（DS-015）和解析方向参数（DS-016）。
+
 ### App FSM：状态机驱动的采集调度
 
 `gateway_app.c` 以 `egw_fsm_t` 驱动，两状态：`st_running` / `st_shutdown`。采集通过定时器调度 → 发 Modbus 请求 → poll 等响应 → Protocol 解析 → 总线发布。错误自动 reopen。
 
-### 新增文件
+> **后续变更**：`egw_context_t` 已移除（DS-007/DS-012 废弃），App 直接使用 libuv + 显式传参。
 
-| 文件 | 用途 |
-|------|------|
-| `src/core/include/egw_ctype.inc` | 9 种核心类型 X-macro |
-| `src/core/include/egw_ptable.h` | 点表二进制格式定义 |
-| `src/core/include/egw_bus.h` | Pub/Sub 总线 API |
-| `src/core/egw_bus.c` | 总线实现（数组订阅表） |
-| `src/core/include/egw_runtime.h` | 运行时单例 API |
-| `src/core/egw_runtime.c` | 运行时实现（聚合 loop+bus） |
-| `src/ptable/` | 点表 mmap 加载器模块 |
-| `src/persist/` | 运行时值持久化模块 |
+### 新增文件（早期，部分已移除）
+
+| 文件 | 用途 | 现状 |
+|------|------|------|
+| `src/core/include/egw_ctype.inc` | 9 种核心类型 X-macro | 保留 |
+| `src/core/include/egw_ptable.h` | 点表二进制格式定义 | **已移除**（DS-013） |
+| `src/core/include/egw_bus.h` | Pub/Sub 总线 API | 保留 |
+| `src/core/egw_bus.c` | 总线实现（数组订阅表） | 保留 |
+| `src/core/include/egw_runtime.h` | 运行时单例 API | **已移除**（DS-007） |
+| `src/core/egw_runtime.c` | 运行时实现 | **已移除**（DS-007） |
+| `src/ptable/` | 点表 mmap 加载器 | **已重写**（DS-013，SQLite） |
+| `src/persist/` | 运行时值持久化 | **已移除**（DS-008） |
 
 ## 2026-06-15：FSM 引擎重写 — entry/exit + 返回值驱动转移
 
@@ -161,3 +169,62 @@ CREATE TABLE route (
     PRIMARY KEY (device_id, sig_id)
 );
 ```
+
+> **后续变更**：schema 改为 `egw_head`（树形）+ `egw_manifest` + 三张业务表，由 `tools/init_db.py` 初始化。`egw_ptable_register` 改为批量返回 `egw_buf_t`，不再回调。详见 2026-06-25 记录。
+
+---
+
+## 2026-06-25：Transport + Protocol + Modbus 全面重构
+
+### Transport 层：统一 handle 抽象（DS-014）
+
+从句柄式 `egw_serial_t` 改为 handle 式统一抽象：
+
+- `egw_transport_handle_t`（opaque struct，定义在私有 `egw_transport_internal.h`）
+- `egw_transport_serial_open/egw_transport_tcp_open`：fopen 风格，返回 handle 或 NULL
+- `egw_transport_common.c`：read/write/close/get_fd 包装（调函数指针）
+- `EGW_TRANSPORT_OPEN` 宏通过 `_Generic` 自动分派串口/TCP
+- `int fd` 通过 `egw_transport_get_fd()` 只读获取（供 `uv_poll_t` 注册）
+- 移除 `egw_serial.h` / `egw_serial_params.h` / `egw_serial` 旧 API
+
+### Protocol 层：零拷贝 + 解析方向（DS-015, DS-016）
+
+io_uring registered-buffer 模式，消除 transport→protocol 的 memcpy：
+
+- `egw_proto_reserve(ctx, &avail)` → 返回 `ctx->buf + ctx->len` 可写指针
+- `egw_proto_commit(ctx, n)` → 更新 len，跑定界 + CRC（无 memcpy）
+- `egw_proto_feed` 保留作兼容路径（= reserve + memcpy + commit）
+- `egw_proto_ctx_create(buf_size, dir)`：`dir` 区分主站（解析响应）和从站（解析请求）
+- 删除本地 `crc16`，改用 core 的 `egw_crc_modbus_table()`
+- 修复 VLA（`payload[6+byte_count]` → `payload[EGW_MODBUS_MAX_PDU]`）
+- 修复 `parse_read_pdu` 异常码冲突（`-(exc + 100)`，即 -101~-111）
+
+### Modbus 协议：单文件完整实现（DS-017）
+
+`egw_modbus.c`（~900 行）包含：
+- CRC（调 core）、帧封装/解封装（RTU + TCP）
+- PDU 构建/解析（FC01-04 读、FC05/06 写单值、FC0F/10 写多值）
+- Client 状态机（`egw_modbus_req_t`，IDLE→SENDING→WAITING→DONE/ERROR）
+- Server 状态机（`egw_modbus_server_t`，feed → parse → callback → response）
+- req/server 均提供 reserve/commit 零拷贝路径
+
+### 点表字段表归属（DS-018）
+
+- `egw_modbus_master_fields()`/`egw_modbus_slave_fields()` → protocol 层
+- `egw_ptable_route_fields()` → ptable 层
+- `egw_route_entry_t` → `egw_defs.h`（协议无关）
+
+### App 层：uv_poll 驱动的本地回环
+
+`gateway_app.c` 实现完整 Modbus RTU 本地回环：
+
+- `uv_poll_t` 监听 server fd → reserve + read + commit → 生成响应 → write
+- 切到 `uv_poll_t` 监听 client fd → reserve + read + commit → `req_process` → `done_cb`
+- `uv_timer_t` 2 秒超时保底
+- `loopback_ctx_t` 聚合所有状态，回调通过 `p->data` 拿回
+- 全程零拷贝路径
+
+### 工具脚本
+
+- `tools/virtual_serial.sh`：改为 start/stop/status/restart 管理模式，后台运行 + PID 文件
+- `tools/init_db.py`：创建 `egw_head`（树形）+ `egw_manifest` + 三张业务表 + 测试数据

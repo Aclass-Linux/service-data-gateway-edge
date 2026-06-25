@@ -2,6 +2,7 @@
 #define EGW_MODBUS_H
 
 #include "egw_defs.h"
+#include "egw_protocol.h"
 #include "egw_crc.h"
 #include <stdint.h>
 #include <stdbool.h>
@@ -61,12 +62,21 @@ typedef struct {
     float    deadband;
 } egw_modbus_slave_t;
 
-/** @brief 路由表行 */
-typedef struct {
-    uint16_t device_id;
-    uint32_t sig_id;
-    uint8_t  ctype;
-} egw_route_entry_t;
+/* ── 点表字段访问器（供 ptable 注册时复用） ─────────── */
+
+/**
+ * @brief 南向采集点字段表
+ * @param count 输出字段数
+ * @return 字段数组指针（指向静态常量数据，无需释放）
+ */
+const egw_field_t *egw_modbus_master_fields(size_t *count);
+
+/**
+ * @brief 北向服务点字段表
+ * @param count 输出字段数
+ * @return 字段数组指针（指向静态常量数据，无需释放）
+ */
+const egw_field_t *egw_modbus_slave_fields(size_t *count);
 
 /* ── 传输层类型 ─────────────────────────────────────── */
 
@@ -183,11 +193,13 @@ size_t egw_modbus_build_read_resp_pdu(uint8_t *pdu, uint8_t fc,
  *  @param fc       期望的功能码
  *  @param regs     输出寄存器数组（CPU 字节序）
  *  @param max_regs 数组容量
- *  @return 实际寄存器数量（>0），负值为 Modbus 异常码的相反数，-1 为其他错误
+ *  @return >0                实际寄存器数量
+ *          -1                参数错误 / 功能码不匹配 / 长度异常
+ *          -(exc + 100)      Modbus 异常响应，exc ∈ [1,11]（即 -101 ~ -111）
  */
 int egw_modbus_parse_read_pdu(const uint8_t *pdu, size_t len,
-                               uint8_t fc,
-                               uint16_t *regs, uint16_t max_regs);
+                                uint8_t fc,
+                                uint16_t *regs, uint16_t max_regs);
 
 /** @brief 解析写响应 PDU，验证回显
  *  @param pdu    PDU 数据
@@ -238,8 +250,6 @@ typedef enum {
 
 /* ── Client（主站） ──────────────────────────────────── */
 
-struct egw_proto_ctx;
-
 /** @brief 请求完成回调
  *  @param unit_id 从站地址
  *  @param sig_id  信号 ID
@@ -253,7 +263,7 @@ typedef void (*egw_modbus_done_cb)(uint8_t unit_id, uint32_t sig_id,
 typedef struct {
     uint8_t                 buf[EGW_MODBUS_MAX_FRAME];
     size_t                  len;
-    struct egw_proto_ctx   *parser;
+    egw_proto_handle_t      *parser;
     egw_modbus_transport_t  transport;
     egw_modbus_state_t      state;
     int64_t                 deadline_ms;
@@ -309,7 +319,25 @@ void egw_modbus_req_send(egw_modbus_req_t *req, uint32_t now_ms);
  *  @param len  字节数
  */
 void egw_modbus_req_feed(egw_modbus_req_t *req,
-                          const uint8_t *data, size_t len);
+                           const uint8_t *data, size_t len);
+
+/**
+ * @brief 预留接收缓冲区（零拷贝路径，io_uring registered-buffer 模式）
+ * @param req   请求上下文（必须处于 WAITING 状态）
+ * @param avail 输出可写字节数
+ * @return 可写指针（直接 read 进这块内存），失败返回 NULL
+ *
+ * 调用方将 transport 读入的字节直接写入返回的指针，
+ * 然后调用 egw_modbus_req_commit() 触发帧解析。
+ */
+uint8_t *egw_modbus_req_reserve(egw_modbus_req_t *req, size_t *avail);
+
+/**
+ * @brief 提交 reserve 后实际写入的字节数，触发帧定界 + 解析 + 状态转移
+ * @param req 请求上下文
+ * @param n   实际写入字节数
+ */
+void egw_modbus_req_commit(egw_modbus_req_t *req, size_t n);
 
 /** @brief 驱动状态机（超时检测 + 回调触发）
  *  @param req    请求上下文
@@ -372,7 +400,22 @@ void egw_modbus_server_destroy(egw_modbus_server_t *s);
  *  @param len  字节数
  */
 void egw_modbus_server_feed(egw_modbus_server_t *s,
-                             const uint8_t *data, size_t len);
+                              const uint8_t *data, size_t len);
+
+/**
+ * @brief 预留接收缓冲区（零拷贝路径，io_uring registered-buffer 模式）
+ * @param s     从站句柄
+ * @param avail 输出可写字节数
+ * @return 可写指针（直接 read 进这块内存），失败返回 NULL
+ */
+uint8_t *egw_modbus_server_reserve(egw_modbus_server_t *s, size_t *avail);
+
+/**
+ * @brief 提交 reserve 后实际写入的字节数，触发帧定界 + 处理 + 生成响应
+ * @param s 从站句柄
+ * @param n 实际写入字节数
+ */
+void egw_modbus_server_commit(egw_modbus_server_t *s, size_t n);
 
 /** @brief 检查是否有响应待发送
  *  @param s 从站句柄

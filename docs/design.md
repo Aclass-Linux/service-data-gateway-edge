@@ -18,9 +18,9 @@
 
 ## DS-003：点表 mmap 二进制
 
-**决定**：点表以 `.bin` 二进制文件存储，运行时通过 `mmap` 只读访问。固定小端字节序、固定宽度类型、`__attribute__((packed))`。三类文件（南向、北向、路由）共享相同文件头，包含 magic、version、build_id、checksum、字节序标记。同源构建者 build_id 必须一致。转换系数和死区遵循「谁用谁存」，由南北向点表各自持有，路由表不存。
+**决定**：点表以 `.bin` 二进制文件存储，运行时通过 `mmap` 只读访问。固定小端字节序、固定宽度类型、`__attribute__((packed))`。
 
-**状态**：已实施（格式定义 + mmap 加载器）。离线构建工具未实现（外部 Python 脚本）。
+**状态**：**已废弃**。被 DS-013（SQLite 点表存储）替代。packed struct 跨架构对齐是静默 bug 来源，SQLite `ALTER TABLE` 平滑迁移字段，启动时全量加载到内存后 close。
 
 ---
 
@@ -42,33 +42,31 @@
 
 ## DS-006：Core 层持有事件循环
 
-**决定**：Core 层封装 libuv 为 `egw_loop_t`，提供 poll（`egw_poll_t`）、timer（`egw_timer_t`）、signal（`egw_signal_t`）API。Transport、Protocol、App 不直接调用 libuv。原定的 `egw_io_handle_t` 以 `egw_poll_t` 替代。
+**决定**：Core 层封装 libuv 为 `egw_loop_t`，提供 poll/timer/signal API。Transport、Protocol、App 不直接调用 libuv。
 
-**状态**：已实施。
+**状态**：**已废弃**。`egw_loop_t` 封装已移除。App 层直接使用 libuv（`uv_poll_t`/`uv_timer_t`/`uv_signal_t`），无中间封装层。Transport 和 Protocol 层仍不依赖 libuv。
 
 ---
 
 ## DS-007：线程内运行时模型
 
-**决定**：第一版单线程。每个任务线程持有线程内单例 `egw_runtime_t`（聚合 `egw_loop_t`、`egw_bus_t`、`egw_ptable_t`、`lua_State`），通过 `egw_runtime_current()` 访问。多线程扩展时各线程内部仍为事件驱动 runtime，跨线程通过 `uv_async_send` 投递。
+**决定**：每个任务线程持有线程内单例 `egw_runtime_t`（聚合 loop + bus + ptable），通过 `egw_runtime_current()` 访问。后替换为 `egw_context_t`（仅持 loop + bus，无文件级静态指针）。
 
-**实施调整**：原协程模型替换为 `egw_fsm_t` 状态机。后 `egw_runtime_t` 被移除，替换为 `egw_context_t`（仅持 loop + bus，无文件级静态指针）。
-
-**状态**：已实施（`egw_context_t` 取代 `egw_runtime_t` 聚合 loop + bus，显式传参不依赖全局指针）。
+**状态**：**已废弃**。`egw_runtime_t` 和 `egw_context_t` 均已移除。组件间通过参数显式传参，不依赖全局指针或中心容器。
 
 ---
 
 ## DS-008：运行时值持久化
 
-**决定**：主回路内存为真相，独立持久化线程落盘。脏页位图跟踪变更（4KB 页粒度，1 bit/页），seqlock 读取一致快照（3 次重试 + 50µs 睡眠）。`last_flush_unix_ms` 文件头记录最近落盘时间。已实现协议 `_Atomic uint64_t` 槽位 + 代数 gen。失败保留脏位下周期重试。
+**决定**：主回路内存为真相，独立持久化线程落盘。脏页位图跟踪变更（4KB 页粒度），seqlock 读取一致快照。
 
-**状态**：已实施（`egw_persist_t`，seqlock 槽位 + 脏页位图 + mmap 文件，flush 同步落盘）。后台持久化线程未实现。
+**状态**：**已废弃**。`egw_persist_t` 已移除，运行时值不持久化。需要持久化时直接 SQLite INSERT。
 
 ---
 
 ## DS-009：总线值表示
 
-**决定**：`egw_value_t` 为 8 字节无判别式 union，成员：`b/i16/u16/i32/u32/i64/u64/f32/f64/raw`。`raw` 与持久化 `_Atomic uint64_t` 槽位对齐。核心类型枚举通过 `egw_ctype.inc` X-macro 定义。
+**决定**：`egw_value_t` 为 8 字节无判别式 union，成员：`b/i16/u16/i32/u32/i64/u64/f32/f64/raw`。核心类型枚举通过 `egw_ctype.inc` X-macro 定义。
 
 **状态**：已实施（`egw_value_t` union + `egw_ctype.inc` 枚举）。
 
@@ -83,31 +81,13 @@
 4. 阻塞 I/O 禁止在主事件循环线程执行
 5. 跨线程传递数据所有权转移或 `_Atomic int ref_count`
 
-线程分类：
-- 主线程：持有完整 `egw_runtime_t`，处理 I/O、事件循环、数据分发
-- 单一功能线程：只有专属资源 + `uv_async_t` 通信
-
 **状态**：设计约束，持续遵守。
 
 ---
 
 ## DS-011：FSM 引擎 entry/exit + 返回值驱动转移
 
-**决定**：`egw_fsm_t` 引擎改为类 QP/C 的返回值驱动模式：
-
-- 框架保留 4 个信号：`EGW_ENTRY_SIG`、`EGW_EXIT_SIG`、`EGW_INIT_SIG`、`EGW_USER_SIG`
-- 状态函数签名改为返回 `egw_ret_t { target }`，`target == NULL` 表示不转移，非 NULL 表示转移到目标状态
-- `egw_fsm_dispatch` 在检测到转移时自动执行：`exit(source) → current = target → entry(target)`
-- `egw_fsm_init` 自动执行初始状态的 entry 动作
-- 返回值采用结构体而非 QP 的隐藏 temp 字段，减少间接层；不增加 ABI 开销
-
-**动机**：
-- 消除了手工调 `st_shutdown(fsm_ptr, NULL)` 这类脆弱模式
-- 状态函数的 entry/exit 逻辑由引擎自动编排，不会遗漏清理
-- `app_phase_t` 隐式子 FSM 未来可收归引擎管理
-
-**备选方案**：
-- QP/C 的 `uint_fast8_t` 返回值 + `Q_TRAN` 宏写隐藏字段 —— 副作用不够透明，HSM 能力当前用不上
+**决定**：`egw_fsm_t` 引擎改为类 QP/C 的返回值驱动模式：框架保留 4 个信号（`EGW_ENTRY_SIG`/`EGW_EXIT_SIG`/`EGW_INIT_SIG`/`EGW_USER_SIG`），状态函数返回 `egw_ret_t { target }` 驱动转移，`egw_fsm_dispatch` 自动执行 `exit(source) → entry(target)`。
 
 **状态**：已实施（`src/core/egw_fsm.c`、`src/core/include/egw_fsm.h`）。
 
@@ -115,17 +95,105 @@
 
 ## DS-012：移除 egw_runtime_t，替换为 egw_context_t
 
-**决定**：将 `egw_runtime_t`（内含文件级静态指针 `g_runtime` + `egw_runtime_current()` 全局访问器）替换为 `egw_context_t{ loop, bus }`。
+**决定**：将 `egw_runtime_t` 替换为 `egw_context_t{ loop, bus }`，无全局静态状态，context 实例在 `egw_app_run` 栈上声明。
 
-- `egw_context_init()` 内部创建 loop + bus，`egw_context_destroy()` 销毁。定义在 `src/core/include/egw_context.h` + `src/core/egw_context.c`
-- 无全局静态状态，context 实例在 `egw_app_run` 栈上声明，通过指针显式传参
-- 应用层不再有聚合一切的 `app_ctx_t`；每个回调通过 `data` 指针仅拿到自己需要的部分（`port_ctx_t`、`timer_share_t`、`fsm_data_t`）
-- FSM 仅负责 running → shutdown 转移；清理在 `egw_loop_run` 返回后统一执行
-- `port_ctx_t` 持有 `egw_context_t *` 回指，供 reopen 场景取 loop
+**状态**：**已废弃**。`egw_context_t` 后续也被移除。组件间完全通过参数显式传参。
+
+---
+
+## DS-013：点表存储从 .bin/mmap 迁移到 SQLite
+
+**决定**：放弃自研 `.bin` 二进制格式 + `mmap` 零拷贝方案，迁移到 SQLite 单文件 `config.db`。
 
 **动机**：
-- 消除文件级静态可变状态（违反 ADR-0010）
-- 组件解耦：不再有一个中心结构体被所有函数引用
-- 为未来多线程做准备：每个线程独立声明自己的 context，不共享
+- packed struct 跨架构对齐（`__attribute__((packed))`）是静默 bug 来源
+- 运维阶段字段变更用 SQL `ALTER TABLE` 平滑迁移
+- 启动时全量 `SELECT` 加载到内存连续数组后 `close`，运行时纯内存操作
 
-**状态**：已实施（`gateway_app.c` + `egw_context.h`）。
+**实施**：
+- `egw_ptable_open(path, head_version)`：打开 DB + 校验 version
+- `egw_ptable_register(pt, table, fields, row_size)`：`COUNT(*)` → `calloc` → `SELECT *` → 首行列名解析 → 逐行 `read_column` 批量填充 → 返回 `egw_buf_t {data, len}`
+- `egw_field_t` + `EGW_FIELD` 宏：字段映射（DB 列名 → C struct 偏移/类型）
+- `egw_head` 表改为树形结构（`id`/`parent_id`/`type`/`desc`）
+- `egw_manifest` 表记录协议名 → 业务表名映射
+
+**状态**：已实施。替代 DS-003。
+
+---
+
+## DS-014：Transport 层统一 handle 抽象
+
+**决定**：Transport 层从句柄式 `egw_serial_t` 改为 handle 式统一抽象，串口/TCP 共用同一 `egw_transport_handle_t`（opaque struct）。
+
+**设计**：
+- `egw_transport.h`：单头文件入口，含 serial params + tcp params + `EGW_TRANSPORT_READ/WRITE/CLOSE/OPEN/GET_FD` 宏
+- `egw_transport_internal.h`：私有 struct 定义（`fd` + `read`/`write`/`close` 函数指针），不对外暴露
+- `egw_transport_serial.c` / `egw_transport_tcp.c`：各自实现 open/read/write/close
+- `egw_transport_common.c`：read/write/close/getfd 包装
+- `EGW_TRANSPORT_OPEN(params)` 通过 `_Generic` 自动分派串口/TCP
+- open 返回 handle（fopen 风格），失败返回 NULL
+- `int fd` 通过 `egw_transport_get_fd()` 只读获取（供 `uv_poll_t` 注册）
+
+**约束**：
+- Transport 不持有事件循环、不注册回调、不运行状态机
+- Transport 不依赖 Protocol 头；Protocol 不依赖 Transport 头
+- App 编排 I/O，Protocol 纯解析（nginx 风格）
+
+**状态**：已实施。
+
+---
+
+## DS-015：Protocol 层零拷贝喂入（io_uring registered-buffer 模式）
+
+**决定**：Protocol 层提供 reserve/commit 零拷贝路径，消除 transport→protocol 的一次 memcpy。
+
+**设计**：
+- `egw_proto_reserve(ctx, &avail)` → 返回 `ctx->buf + ctx->len` 可写指针
+- `egw_proto_commit(ctx, n)` → 更新 len，跑定界 + CRC（无 memcpy）
+- `egw_proto_feed` 保留作兼容路径（= reserve + memcpy + commit）
+- Modbus req/server 同样提供 `reserve/commit`，帧就绪后调 `handle_frame`
+
+**类比**：
+- io_uring registered buffers：消费方预发布缓冲区，生产方直接写入
+- 方案 A 在 transport↔protocol 边界消除开销，io_uring 在 kernel↔user 边界消除开销，两者可叠加
+
+**状态**：已实施。
+
+---
+
+## DS-016：Protocol 层解析方向参数
+
+**决定**：`egw_proto_ctx_create(buf_size, dir)` 增加 `egw_proto_dir_t` 参数，区分主站（解析响应）和从站（解析请求）。
+
+**动机**：Modbus 请求帧和响应帧对同一功能码有不同的长度结构。例如 FC=03 请求固定 8 字节，响应为 `3 + byte_count + 2` 字节。protocol 层需要知道方向才能正确计算期望帧长度。
+
+**状态**：已实施。
+
+---
+
+## DS-017：Modbus 协议单文件实现
+
+**决定**：完整 Modbus RTU/TCP 实现放在单个 `egw_modbus.c` 文件中（nanoMODBUS 风格），不拆分为多个文件。
+
+**内容**：
+- CRC（调 core 的 `egw_crc_modbus_table`）
+- 帧封装/解封装（RTU + TCP）
+- PDU 构建/解析（传输无关）
+- Client 状态机（IDLE→SENDING→WAITING→DONE/ERROR）
+- Server 状态机（feed → parse → callback → response）
+- 点表字段表（`egw_modbus_master_fields`/`egw_modbus_slave_fields`）
+
+**状态**：已实施。
+
+---
+
+## DS-018：点表字段表归属
+
+**决定**：
+- Modbus 特有的 `master_fields`/`slave_fields` 定义在 protocol 层（`egw_modbus.c`），通过 `egw_modbus_master_fields()`/`egw_modbus_slave_fields()` 访问
+- 协议无关的 `route_fields` 定义在 ptable 层（`egw_ptable.c`），通过 `egw_ptable_route_fields()` 访问
+- `egw_route_entry_t` 定义在 `egw_defs.h`（协议无关）
+
+**动机**：路由表是 ptable 基础设施层的概念，不应让 ptable 反向依赖 protocol 层。
+
+**状态**：已实施。

@@ -28,6 +28,20 @@ rebuild                # clean + build
 run                    # 运行网关
 ```
 
+## 测试
+
+详见 [docs/testing.md](docs/testing.md)。
+
+```bash
+source aclass.env.sh
+build
+ctest --test-dir build --output-on-failure
+./tools/virtual_serial.sh start
+rm -f config.db && python3 tools/init_db.py config.db
+run
+./tools/virtual_serial.sh stop
+```
+
 ## 目录结构
 
 ```
@@ -36,15 +50,31 @@ run                    # 运行网关
 ├── cmake/                   项目级 CMake 配置及工具链
 ├── scripts/                 构建脚本
 ├── src/
-│   ├── core/                基础组件（错误码、事件循环、配置、总线、运行时）
-│   ├── transport/           传输层（串口、TCP）
-│   ├── protocol/            协议解析（Modbus RTU）
-│   ├── ptable/              点表加载（mmap）
-│   └── app/                 可执行入口
-├── third-party/             第三方依赖（cjson, libuv, unity）
-├── tests/                   单元测试（Unity）
+│   ├── core/                核心库：错误码、CRC、配置、总线、状态机
+│   ├── transport/           传输层：串口/TCP 统一 handle 抽象（非阻塞 I/O）
+│   ├── protocol/            协议层：帧定界（零拷贝 reserve/commit）+ Modbus RTU/TCP
+│   ├── ptable/              点表加载（SQLite → 内存连续数组）
+│   └── app/                 可执行入口（libuv 事件驱动 + Modbus 回环演示）
+├── third-party/             第三方依赖（cjson, libuv, sqlite, unity）
+├── tests/                   单元测试
+├── tools/                   工具脚本（虚拟串口、数据库初始化）
 ├── build/                   编译产物
-├── docs/design.md           设计决策记录
-├── docs/implementation.md   实施记录
+├── docs/
+│   ├── design.md            设计决策记录（ADR）
+│   ├── implementation.md    实施记录
+│   └── testing.md           测试流程
+├── CONTEXT.md               领域术语表
+├── AGENTS.md                AI 编码助手指南
 └── install/                 Release 产物
 ```
+
+## 模块依赖
+
+```
+app → core, transport, protocol, ptable
+protocol → core（不依赖 transport）
+transport → core（不依赖 protocol）
+ptable → core, sqlite
+```
+
+App 层编排 I/O，Protocol 纯解析，Transport 纯 I/O——三者解耦。

@@ -1,5 +1,4 @@
 #include "gateway_engine.h"
-#include <stdlib.h>
 #include <string.h>
 
 /* ── prepare 回调：每轮迭代前投递 TICK 到 FSM ───────── */

@@ -21,3 +21,9 @@ void egw_transport_close(egw_transport_handle_t *h)
     h->close(h);
     free(h);
 }
+
+int egw_transport_get_fd(const egw_transport_handle_t *h)
+{
+    if (!h) { return -1; }
+    return h->fd;
+}

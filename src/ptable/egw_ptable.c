@@ -491,3 +491,19 @@ egw_buf_t egw_ptable_register(egw_ptable_t *pt,
     result.len  = count * row_size;
     return result;
 }
+
+/* ── 路由表字段表（协议无关） ────────────────────────── */
+
+static const egw_field_t s_route_fields[] = {
+    EGW_FIELD(egw_route_entry_t, "device_id", device_id, EGW_CTYPE_U16),
+    EGW_FIELD(egw_route_entry_t, "sig_id",    sig_id,    EGW_CTYPE_U32),
+    EGW_FIELD(egw_route_entry_t, "ctype",     ctype,     EGW_CTYPE_BOOL),
+};
+
+const egw_field_t *egw_ptable_route_fields(size_t *count)
+{
+    if (count) {
+        *count = sizeof(s_route_fields) / sizeof(s_route_fields[0]);
+    }
+    return s_route_fields;
+}

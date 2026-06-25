@@ -1,5 +1,4 @@
 #include "egw_modbus.h"
-#include "egw_protocol.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -154,7 +153,7 @@ size_t egw_modbus_build_write_multiple_coils_pdu(uint8_t *pdu, uint16_t addr,
     }
 
     uint8_t byte_count = (uint8_t)((count + 7) / 8);
-    uint8_t payload[6 + byte_count];
+    uint8_t payload[EGW_MODBUS_MAX_PDU];
     payload[0] = (uint8_t)(addr >> 8);
     payload[1] = (uint8_t)(addr & 0xFF);
     payload[2] = (uint8_t)(count >> 8);
@@ -173,7 +172,7 @@ size_t egw_modbus_build_write_multiple_regs_pdu(uint8_t *pdu, uint16_t addr,
     }
 
     uint8_t byte_count = (uint8_t)(count * 2);
-    uint8_t payload[5 + byte_count];
+    uint8_t payload[EGW_MODBUS_MAX_PDU];
     payload[0] = (uint8_t)(addr >> 8);
     payload[1] = (uint8_t)(addr & 0xFF);
     payload[2] = (uint8_t)(count >> 8);
@@ -221,7 +220,8 @@ int egw_modbus_parse_read_pdu(const uint8_t *pdu, size_t len,
     }
 
     if ((pdu[0] & 0x80) && (pdu[0] & 0x7F) == fc) {
-        return -(int)pdu[1];
+        /* Modbus 异常响应：返回 -(exc + 100) 以避开通用错误 -1 */
+        return -(int)pdu[1] - 100;
     }
 
     if (pdu[0] != fc) {
@@ -443,7 +443,10 @@ void egw_modbus_req_init(egw_modbus_req_t *req,
         return;
     }
 
-    req->parser = egw_proto_ctx_create();
+    req->parser = egw_proto_modbus_open(&(egw_proto_modbus_params_t){
+        .buf_size = EGW_MODBUS_MAX_FRAME,
+        .dir      = EGW_PROTO_DIR_RESPONSE,
+    });
     if (!req->parser) {
         req->state = EGW_MODBUS_ERROR;
         return;
@@ -458,7 +461,7 @@ void egw_modbus_req_destroy(egw_modbus_req_t *req)
         return;
     }
     if (req->parser) {
-        egw_proto_ctx_destroy(req->parser);
+        egw_proto_close(req->parser);
         req->parser = NULL;
     }
 }
@@ -479,18 +482,10 @@ void egw_modbus_req_send(egw_modbus_req_t *req, uint32_t now_ms)
     req->state = EGW_MODBUS_WAITING;
 }
 
-void egw_modbus_req_feed(egw_modbus_req_t *req,
-                          const uint8_t *data, size_t len)
+/* ── Client（主站）：帧已就绪后的解析 + 状态转移 ─────── */
+
+static void req_handle_frame(egw_modbus_req_t *req)
 {
-    if (!req || req->state != EGW_MODBUS_WAITING) {
-        return;
-    }
-
-    egw_proto_result_t r = egw_proto_feed(req->parser, data, len);
-    if (r != EGW_PROTO_FRAME_READY) {
-        return;
-    }
-
     size_t frame_len = 0;
     const uint8_t *frame = egw_proto_get_frame(req->parser, &frame_len);
 
@@ -499,7 +494,7 @@ void egw_modbus_req_feed(egw_modbus_req_t *req,
     uint8_t unit_id = 0;
 
     if (egw_modbus_unwrap_frame(frame, frame_len, req->transport,
-                                 &unit_id, pdu, &pdu_len) != EGW_OK) {
+                                  &unit_id, pdu, &pdu_len) != EGW_OK) {
         req->state = EGW_MODBUS_ERROR;
         return;
     }
@@ -518,12 +513,52 @@ void egw_modbus_req_feed(egw_modbus_req_t *req,
 
     req->regs_parsed = n;
     if (egw_modbus_regs_to_value(req->regs, (uint16_t)n,
-                                  req->ctype, &req->value) != EGW_OK) {
+                                   req->ctype, &req->value) != EGW_OK) {
         req->state = EGW_MODBUS_ERROR;
         return;
     }
 
     req->state = EGW_MODBUS_DONE;
+}
+
+void egw_modbus_req_feed(egw_modbus_req_t *req,
+                           const uint8_t *data, size_t len)
+{
+    if (!req || req->state != EGW_MODBUS_WAITING || !data || len == 0) {
+        return;
+    }
+
+    egw_proto_result_t r = egw_proto_feed(req->parser, data, len);
+    if (r != EGW_PROTO_FRAME_READY) {
+        return;
+    }
+
+    req_handle_frame(req);
+}
+
+uint8_t *egw_modbus_req_reserve(egw_modbus_req_t *req, size_t *avail)
+{
+    if (!req || req->state != EGW_MODBUS_WAITING || !avail) {
+        if (avail) {
+            *avail = 0;
+        }
+        return NULL;
+    }
+    return egw_proto_reserve(req->parser, avail);
+}
+
+void egw_modbus_req_commit(egw_modbus_req_t *req, size_t n)
+{
+    if (!req || req->state != EGW_MODBUS_WAITING || n == 0) {
+        return;
+    }
+
+    egw_proto_result_t r = egw_proto_commit(req->parser, n);
+    if (r != EGW_PROTO_FRAME_READY) {
+        return;
+    }
+
+    req_handle_frame(req);
 }
 
 egw_modbus_state_t egw_modbus_req_process(egw_modbus_req_t *req,
@@ -558,7 +593,7 @@ struct egw_modbus_server {
     egw_modbus_srv_write_cb write_cb;
     void                   *cb_arg;
 
-    egw_proto_ctx_t        *parser;
+    egw_proto_handle_t      *parser;
 
     bool                    has_response;
     uint8_t                 resp_buf[EGW_MODBUS_MAX_FRAME];
@@ -650,6 +685,8 @@ static egw_err_t handle_write_request(egw_modbus_server_t *s,
 
 /* ── Server（从站）状态机 ───────────────────────────── */
 
+static void server_handle_frame(egw_modbus_server_t *s);
+
 egw_modbus_server_t *egw_modbus_server_create(
     egw_modbus_transport_t transport,
     uint8_t unit_id,
@@ -668,7 +705,10 @@ egw_modbus_server_t *egw_modbus_server_create(
     s->write_cb  = write_cb;
     s->cb_arg    = arg;
 
-    s->parser = egw_proto_ctx_create();
+    s->parser = egw_proto_modbus_open(&(egw_proto_modbus_params_t){
+        .buf_size = EGW_MODBUS_MAX_FRAME,
+        .dir      = EGW_PROTO_DIR_REQUEST,
+    });
     if (!s->parser) {
         free(s);
         return NULL;
@@ -682,14 +722,14 @@ void egw_modbus_server_destroy(egw_modbus_server_t *s)
     if (!s) {
         return;
     }
-    egw_proto_ctx_destroy(s->parser);
+    egw_proto_close(s->parser);
     free(s);
 }
 
 void egw_modbus_server_feed(egw_modbus_server_t *s,
-                             const uint8_t *data, size_t len)
+                              const uint8_t *data, size_t len)
 {
-    if (!s || !data || s->has_response) {
+    if (!s || !data || len == 0 || s->has_response) {
         return;
     }
 
@@ -698,6 +738,38 @@ void egw_modbus_server_feed(egw_modbus_server_t *s,
         return;
     }
 
+    server_handle_frame(s);
+}
+
+uint8_t *egw_modbus_server_reserve(egw_modbus_server_t *s, size_t *avail)
+{
+    if (!s || s->has_response || !avail) {
+        if (avail) {
+            *avail = 0;
+        }
+        return NULL;
+    }
+    return egw_proto_reserve(s->parser, avail);
+}
+
+void egw_modbus_server_commit(egw_modbus_server_t *s, size_t n)
+{
+    if (!s || n == 0 || s->has_response) {
+        return;
+    }
+
+    egw_proto_result_t r = egw_proto_commit(s->parser, n);
+    if (r != EGW_PROTO_FRAME_READY) {
+        return;
+    }
+
+    server_handle_frame(s);
+}
+
+/* ── Server（从站）：帧已就绪后的处理 + 响应生成 ─────── */
+
+static void server_handle_frame(egw_modbus_server_t *s)
+{
     size_t frame_len = 0;
     const uint8_t *frame = egw_proto_get_frame(s->parser, &frame_len);
 
@@ -797,4 +869,48 @@ void egw_modbus_server_response_sent(egw_modbus_server_t *s)
     }
     s->has_response = false;
     s->resp_len = 0;
+}
+
+/* ── 点表字段表（供 ptable 注册时复用） ──────────────── */
+
+static const egw_field_t s_master_fields[] = {
+    EGW_FIELD(egw_modbus_master_t, "device_id",        device_id,        EGW_CTYPE_U16),
+    EGW_FIELD(egw_modbus_master_t, "sig_id",           sig_id,           EGW_CTYPE_U32),
+    EGW_FIELD(egw_modbus_master_t, "func_code",        func_code,        EGW_CTYPE_BOOL),
+    EGW_FIELD(egw_modbus_master_t, "reg_addr",         reg_addr,         EGW_CTYPE_U16),
+    EGW_FIELD(egw_modbus_master_t, "reg_count",        reg_count,        EGW_CTYPE_U16),
+    EGW_FIELD(egw_modbus_master_t, "ctype",            ctype,            EGW_CTYPE_BOOL),
+    EGW_FIELD(egw_modbus_master_t, "poll_interval_ms", poll_interval_ms, EGW_CTYPE_U32),
+    EGW_FIELD(egw_modbus_master_t, "flags",            flags,            EGW_CTYPE_BOOL),
+    EGW_FIELD(egw_modbus_master_t, "scale",            scale,            EGW_CTYPE_F32),
+    EGW_FIELD(egw_modbus_master_t, "offset",           offset,           EGW_CTYPE_F32),
+    EGW_FIELD(egw_modbus_master_t, "deadband",         deadband,         EGW_CTYPE_F32),
+};
+
+static const egw_field_t s_slave_fields[] = {
+    EGW_FIELD(egw_modbus_slave_t, "device_id", device_id, EGW_CTYPE_U16),
+    EGW_FIELD(egw_modbus_slave_t, "sig_id",    sig_id,    EGW_CTYPE_U32),
+    EGW_FIELD(egw_modbus_slave_t, "func_code", func_code, EGW_CTYPE_BOOL),
+    EGW_FIELD(egw_modbus_slave_t, "reg_addr",  reg_addr,  EGW_CTYPE_U16),
+    EGW_FIELD(egw_modbus_slave_t, "ctype",     ctype,     EGW_CTYPE_BOOL),
+    EGW_FIELD(egw_modbus_slave_t, "flags",     flags,     EGW_CTYPE_BOOL),
+    EGW_FIELD(egw_modbus_slave_t, "scale",     scale,     EGW_CTYPE_F32),
+    EGW_FIELD(egw_modbus_slave_t, "offset",    offset,    EGW_CTYPE_F32),
+    EGW_FIELD(egw_modbus_slave_t, "deadband",  deadband,  EGW_CTYPE_F32),
+};
+
+const egw_field_t *egw_modbus_master_fields(size_t *count)
+{
+    if (count) {
+        *count = sizeof(s_master_fields) / sizeof(s_master_fields[0]);
+    }
+    return s_master_fields;
+}
+
+const egw_field_t *egw_modbus_slave_fields(size_t *count)
+{
+    if (count) {
+        *count = sizeof(s_slave_fields) / sizeof(s_slave_fields[0]);
+    }
+    return s_slave_fields;
 }
