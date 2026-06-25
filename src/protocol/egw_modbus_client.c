@@ -2,6 +2,7 @@
 #include "egw_crc.h"
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #define MIN_FRAME 4
 
@@ -43,6 +44,16 @@ static egw_proto_result_t resp_parse(const uint8_t *buf, size_t len,
     *frame_len = (size_t)exp;
     return EGW_PROTO_FRAME_READY;
 }
+
+/* ── 请求 slot（不暴露给外部） ───────────────────────── */
+
+struct egw_modbus_req_slot {
+    struct egw_modbus_req_slot *next;
+    uint8_t                    *buf;       /* 完整 ADU 帧 */
+    size_t                     len;
+    uint8_t                    unit_id;
+    uint16_t                   addr;
+};
 
 /* ── Client（主站） ──────────────────────────────────── */
 
@@ -103,12 +114,9 @@ void egw_modbus_client_destroy(egw_modbus_client_t *c)
 }
 
 egw_modbus_req_slot_t *egw_modbus_client_register(egw_modbus_client_t *c,
-                                                    uint8_t unit_id,
-                                                    uint8_t funccode,
-                                                    uint16_t addr,
-                                                    uint16_t count)
+                                                    const egw_modbus_req_params_t *params)
 {
-    if (!c) { return NULL; }
+    if (!c || !params) { return NULL; }
 
     egw_modbus_req_slot_t *s = calloc(1, sizeof(*s));
     if (!s) { return NULL; }
@@ -117,17 +125,37 @@ egw_modbus_req_slot_t *egw_modbus_client_register(egw_modbus_client_t *c,
     if (!s->buf) { free(s); return NULL; }
 
     uint8_t pdu[EGW_MODBUS_MAX_PDU];
-    size_t pdu_len = egw_modbus_build_read_pdu(pdu, funccode, addr, count);
+    size_t pdu_len = egw_modbus_build_read_pdu(pdu, params->funccode,
+                                                 params->addr, params->count);
     if (pdu_len == 0) { free(s->buf); free(s); return NULL; }
 
-    s->len = c->wrap(s->buf, unit_id, pdu, pdu_len);
+    s->len = c->wrap(s->buf, params->unit_id, pdu, pdu_len);
     if (s->len == 0) { free(s->buf); free(s); return NULL; }
 
-    s->unit_id = unit_id;
-    s->addr    = addr;
+    s->unit_id = params->unit_id;
+    s->addr    = params->addr;
     s->next    = c->slots;
     c->slots   = s;
     return s;
+}
+
+/* ── Hex 日志 ────────────────────────────────────────── */
+
+static void log_hex(const char *tag, const uint8_t *buf, size_t len)
+{
+    if (len == 0) { return; }
+    size_t show = len > 64 ? 64 : len;
+    char hex[64 * 3 + 8];
+    size_t pos = 0;
+    for (size_t i = 0; i < show; i++) {
+        pos += snprintf(hex + pos, sizeof(hex) - pos,
+                         "%s%02x", i == 0 ? "" : " ", buf[i]);
+        if (pos >= sizeof(hex) - 4) { break; }
+    }
+    if (len > 64) {
+        snprintf(hex + pos, sizeof(hex) - pos, " ...");
+    }
+    EGW_LOGI("  [client] %s (%zu): %s", tag, len, hex);
 }
 
 const uint8_t *egw_modbus_client_send(egw_modbus_client_t *c,
@@ -138,8 +166,11 @@ const uint8_t *egw_modbus_client_send(egw_modbus_client_t *c,
     c->current  = slot;
     c->recv_len = 0;
     *len = slot->len;
+    log_hex("send", slot->buf, slot->len);
     return slot->buf;
 }
+
+/* ── Hex 日志 ────────────────────────────────────────── */
 
 /* ── 解析已就绪的响应帧，调回调 ──────────────────────── */
 
@@ -157,6 +188,8 @@ static void client_handle_frame(egw_modbus_client_t *c)
         c->done_cb(s->unit_id, s->addr, NULL, -1, c->cb_arg);
         return;
     }
+
+    log_hex("recv", c->recv_buf, c->recv_len);
 
     if (unit_id != s->unit_id) {
         c->done_cb(s->unit_id, s->addr, NULL, -1, c->cb_arg);

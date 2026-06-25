@@ -277,9 +277,12 @@ static void run_modbus_loopback(void)
         EGW_LOGE("  client_create failed");
         goto cleanup;
     }
-    lb.slot = egw_modbus_client_register(lb.cli, 1,
-                                          EGW_MODBUS_FC_READ_HOLDING_REGISTERS,
-                                          0, 2);
+    lb.slot = egw_modbus_client_register(lb.cli, &(egw_modbus_req_params_t){
+        .unit_id  = 1,
+        .funccode = EGW_MODBUS_FC_READ_HOLDING_REGISTERS,
+        .addr     = 0,
+        .count    = 2,
+    });
     if (!lb.slot) {
         EGW_LOGE("  register failed");
         goto cleanup;

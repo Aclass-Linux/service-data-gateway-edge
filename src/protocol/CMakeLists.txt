@@ -1,6 +1,5 @@
 add_library(egw_protocol STATIC
     egw_modbus_core.c
-    egw_modbus_transport.c
     egw_modbus_client.c
     egw_modbus_server.c
 )
