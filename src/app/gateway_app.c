@@ -129,18 +129,18 @@ static egw_err_t loopback_srv_read_cb(uint16_t addr, uint16_t qty,
     return EGW_OK;
 }
 
-static void loopback_cli_done_cb(uint8_t unit_id, uint16_t addr,
-                                   const uint16_t *regs, int reg_count,
-                                   void *arg)
+static void loopback_cli_done_cb(const egw_modbus_result_t *result, void *arg)
 {
     loopback_ctx_t *lb = arg;
-    if (reg_count < 0) {
-        EGW_LOGE("    [client] done_cb: error unit=%u addr=%u", unit_id, addr);
+    if (result->reg_count < 0) {
+        EGW_LOGE("    [client] done_cb: error unit=%u addr=%u",
+                 result->unit_id, result->addr);
         uv_stop(lb->loop);
         return;
     }
     EGW_LOGI("    [client] done_cb: unit=%u addr=%u regs[0]=0x%04X regs[1]=0x%04X",
-             unit_id, addr, regs[0], reg_count > 1 ? regs[1] : 0);
+             result->unit_id, result->addr,
+             result->regs[0], result->reg_count > 1 ? result->regs[1] : 0);
     lb->phase = PHASE_DONE;
     uv_stop(lb->loop);
 }

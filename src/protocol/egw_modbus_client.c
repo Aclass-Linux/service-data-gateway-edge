@@ -185,14 +185,18 @@ static void client_handle_frame(egw_modbus_client_t *c)
 
     if (c->unwrap(c->recv_buf, c->recv_len,
                    &unit_id, pdu, &pdu_len) != EGW_OK) {
-        c->done_cb(s->unit_id, s->addr, NULL, -1, c->cb_arg);
+        egw_modbus_result_t r = { .unit_id = s->unit_id, .addr = s->addr,
+                                   .regs = NULL, .reg_count = -1 };
+        c->done_cb(&r, c->cb_arg);
         return;
     }
 
     log_hex("recv", c->recv_buf, c->recv_len);
 
     if (unit_id != s->unit_id) {
-        c->done_cb(s->unit_id, s->addr, NULL, -1, c->cb_arg);
+        egw_modbus_result_t r = { .unit_id = s->unit_id, .addr = s->addr,
+                                   .regs = NULL, .reg_count = -1 };
+        c->done_cb(&r, c->cb_arg);
         return;
     }
 
@@ -200,11 +204,15 @@ static void client_handle_frame(egw_modbus_client_t *c)
     uint8_t funccode = s->buf[1];
     int n = egw_modbus_parse_read_pdu(pdu, pdu_len, funccode, regs, 128);
     if (n < 0) {
-        c->done_cb(s->unit_id, s->addr, NULL, -1, c->cb_arg);
+        egw_modbus_result_t r = { .unit_id = s->unit_id, .addr = s->addr,
+                                   .regs = NULL, .reg_count = -1 };
+        c->done_cb(&r, c->cb_arg);
         return;
     }
 
-    c->done_cb(s->unit_id, s->addr, regs, n, c->cb_arg);
+    egw_modbus_result_t r = { .unit_id = s->unit_id, .addr = s->addr,
+                               .regs = regs, .reg_count = n };
+    c->done_cb(&r, c->cb_arg);
 }
 
 void egw_modbus_client_feed(egw_modbus_client_t *c,

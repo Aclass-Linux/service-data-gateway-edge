@@ -9,17 +9,6 @@ typedef struct egw_modbus_req_slot egw_modbus_req_slot_t;
 
 /* ── Client（主站） ──────────────────────────────────── */
 
-/** @brief Modbus 读完成回调
- *  @param unit_id   从站地址
- *  @param addr      寄存器地址
- *  @param regs      原始寄存器值数组（CPU 字节序）
- *  @param reg_count 寄存器数量（< 0 表示错误）
- *  @param arg       用户参数
- */
-typedef void (*egw_modbus_done_cb)(uint8_t unit_id, uint16_t addr,
-                                     const uint16_t *regs, int reg_count,
-                                     void *arg);
-
 /** @brief 主站句柄（不透明，内部持有请求链表 + 接收缓冲区） */
 typedef struct egw_modbus_client egw_modbus_client_t;
 

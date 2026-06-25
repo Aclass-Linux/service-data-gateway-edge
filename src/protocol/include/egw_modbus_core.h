@@ -164,6 +164,17 @@ egw_err_t egw_modbus_parse_request(const uint8_t *pdu, size_t len,
 
 /* ── 帧封装／解封装（输运层） ────────────────────────── */
 
+/** @brief Modbus 读请求完成结果（回调参数） */
+typedef struct {
+    uint8_t           unit_id;    /**< 从站地址 */
+    uint16_t          addr;       /**< 寄存器地址 */
+    const uint16_t   *regs;       /**< 寄存器值数组（CPU 字节序，回调期间有效） */
+    int               reg_count;  /**< 寄存器数量（< 0 表示错误） */
+} egw_modbus_result_t;
+
+/** @brief Modbus 读完成回调 */
+typedef void (*egw_modbus_done_cb)(const egw_modbus_result_t *result, void *arg);
+
 /** @brief 将 PDU 打包为完整 ADU（加地址 + CRC/MBAP） */
 size_t egw_modbus_wrap_pdu(uint8_t *buf, egw_modbus_transport_t transport,
                             uint8_t unit_id,
