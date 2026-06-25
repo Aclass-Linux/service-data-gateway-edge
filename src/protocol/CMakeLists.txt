@@ -1,7 +1,8 @@
 add_library(egw_protocol STATIC
-    egw_protocol_common.c
-    egw_protocol_modbus.c
-    egw_modbus.c
+    egw_modbus_core.c
+    egw_modbus_transport.c
+    egw_modbus_client.c
+    egw_modbus_server.c
 )
 
 target_include_directories(egw_protocol PUBLIC
