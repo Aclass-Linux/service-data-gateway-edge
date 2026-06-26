@@ -186,6 +186,7 @@ typedef struct {
     egw_modbus_server_t *server;
     egw_modbus_client_t    *cli;
     loopback_phase_t     phase;
+    bool                 seg_pending;   /* 后半段待发送 */
     uv_poll_t            cli_poll;
     uv_poll_t            srv_poll;
 } loopback_ctx_t;
@@ -252,14 +253,14 @@ static void on_srv_poll(uv_poll_t *p, int status, int events)
     }
     EGW_LOGI("    [server] recv request, → response ready");
 
+    /* 模拟分段发送：先发前半段，后半段由 client 首轮 poll 负责 */
+    size_t first_half = resp_len / 2;
     size_t written = 0;
-    egw_transport_write(lb->srv_h, resp, &written, resp_len);
-    egw_modbus_server_response_sent(lb->server);
-    EGW_LOGI("    [server] → sent %zu bytes", written);
+    egw_transport_write(lb->srv_h, resp, &written, first_half);
+    EGW_LOGI("    [server] → sent %zu/%zu bytes (first half)", written, resp_len);
 
-    /* 停 server poll，启 client poll */
     uv_poll_stop(&lb->srv_poll);
-    lb->phase = PHASE_CLIENT_RECV;
+    lb->seg_pending = true;
     uv_poll_start(&lb->cli_poll, UV_READABLE, on_cli_poll);
 }
 
@@ -285,6 +286,22 @@ static void on_cli_poll(uv_poll_t *p, int status, int events)
     }
 
     egw_modbus_client_commit(lb->cli, rlen);
+
+    /* 如果还有后半段未发，现在发 */
+    if (lb->seg_pending) {
+        lb->seg_pending = false;
+        size_t resp_len = 0;
+        const uint8_t *resp = egw_modbus_server_get_response(lb->server, &resp_len);
+        if (resp) {
+            size_t first_half = resp_len / 2;
+            size_t written = 0;
+            egw_transport_write(lb->srv_h, resp + first_half,
+                                &written, resp_len - first_half);
+            EGW_LOGI("    [server] → sent %zu/%zu bytes (second half)",
+                     written, resp_len - first_half);
+            egw_modbus_server_response_sent(lb->server);
+        }
+    }
 }
 
 /* ── 超时定时器 ─────────────────────────────────────── */
@@ -386,10 +403,11 @@ static void run_modbus_loopback(void)
     lb.srv_poll.data = &lb;
     lb.cli_poll.data = &lb;
     lb.phase = PHASE_SERVER_RECV;
+    lb.seg_pending = false;
 
     uv_poll_start(&lb.srv_poll, UV_READABLE, on_srv_poll);
 
-    /* 6. 超时定时器 (2s) */
+    /* 超时定时器 (2s) */
     uv_timer_init(&loop, &timer);
     timer.data = &lb;
     uv_timer_start(&timer, on_timeout, 2000, 0);
