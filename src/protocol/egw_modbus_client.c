@@ -243,11 +243,16 @@ void egw_modbus_client_feed(egw_modbus_client_t *client,
     size_t frame_len = 0;
     egw_proto_result_t result = resp_parse(client->recv_buf, client->recv_len,
                                             &frame_len);
-    if (result == EGW_PROTO_FRAME_READY) {
+    switch (result) {
+    case EGW_PROTO_FRAME_READY:
         client->recv_len = frame_len;
         client_handle_frame(client);
-    } else if (result == EGW_PROTO_FRAME_ERROR) {
+        break;
+    case EGW_PROTO_FRAME_ERROR:
         client->recv_len = 0;
+        break;
+    case EGW_PROTO_NEED_MORE:
+        break;
     }
 }
 
