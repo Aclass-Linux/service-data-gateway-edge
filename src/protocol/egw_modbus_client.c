@@ -45,11 +45,12 @@ static egw_proto_result_t resp_parse(const uint8_t *buf, size_t len,
     return EGW_PROTO_FRAME_READY;
 }
 
-/* ── 请求 slot（不暴露给外部） ───────────────────────── */
+/* ── 请求 slot ───────────────────────────────────────── */
 
 struct egw_modbus_req_slot {
     struct egw_modbus_req_slot *next;
-    uint8_t                    *buf;       /* 完整 ADU 帧 */
+    struct egw_modbus_req_slot *prev;
+    uint8_t                    *buf;
     size_t                     len;
     uint8_t                    unit_id;
     uint16_t                   addr;
@@ -58,13 +59,12 @@ struct egw_modbus_req_slot {
 /* ── Client（主站） ──────────────────────────────────── */
 
 struct egw_modbus_client {
-    egw_modbus_wrap_fn         wrap;
-    egw_modbus_unwrap_fn      unwrap;
+    egw_modbus_transport_t    transport;
 
-    egw_modbus_req_slot_t    *slots;       /* 请求链表 */
-    egw_modbus_req_slot_t    *current;     /* 当前正等待响应的 slot */
+    egw_modbus_req_slot_t    *slots;       /* 环形链表入口 */
+    egw_modbus_req_slot_t    *current;     /* 当前等待响应的 slot */
 
-    uint8_t                  *recv_buf;    /* 接收缓冲区 */
+    uint8_t                  *recv_buf;
     size_t                    recv_cap;
     size_t                    recv_len;
 
@@ -72,71 +72,86 @@ struct egw_modbus_client {
     void                     *cb_arg;
 };
 
-egw_modbus_client_t *egw_modbus_client_create(egw_modbus_transport_t transport,
-                                                egw_modbus_done_cb done_cb,
-                                                void *cb_arg)
+egw_modbus_client_t *egw_modbus_client_create(const egw_modbus_client_params_t *params)
 {
-    egw_modbus_client_t *c = calloc(1, sizeof(*c));
-    if (!c) { return NULL; }
+    if (!params || !params->done_cb) { return NULL; }
 
-    c->recv_buf = malloc(EGW_MODBUS_MAX_FRAME);
-    if (!c->recv_buf) { free(c); return NULL; }
-    c->recv_cap = EGW_MODBUS_MAX_FRAME;
+    egw_modbus_client_t *client = calloc(1, sizeof(*client));
+    if (!client) { return NULL; }
 
-    switch (transport) {
-    case EGW_MODBUS_RTU:
-        c->wrap   = egw_modbus_wrap_rtu;
-        c->unwrap = egw_modbus_unwrap_rtu;
-        break;
-    case EGW_MODBUS_TCP:
-        c->wrap   = egw_modbus_wrap_tcp;
-        c->unwrap = egw_modbus_unwrap_tcp;
-        break;
-    }
+    size_t recv_cap = params->recv_cap ? params->recv_cap : EGW_MODBUS_MAX_FRAME;
+    client->recv_buf = malloc(recv_cap);
+    if (!client->recv_buf) { free(client); return NULL; }
+    client->recv_cap = recv_cap;
 
-    c->done_cb = done_cb;
-    c->cb_arg  = cb_arg;
-    return c;
+    client->transport = params->transport;
+
+    client->done_cb = params->done_cb;
+    client->cb_arg  = params->cb_arg;
+    return client;
 }
 
-void egw_modbus_client_destroy(egw_modbus_client_t *c)
+void egw_modbus_client_destroy(egw_modbus_client_t *client)
 {
-    if (!c) { return; }
-    egw_modbus_req_slot_t *n = c->slots;
-    while (n) {
-        egw_modbus_req_slot_t *next = n->next;
-        free(n->buf);
-        free(n);
-        n = next;
+    if (!client) { return; }
+    if (client->slots) {
+        egw_modbus_req_slot_t *start = client->slots;
+        egw_modbus_req_slot_t *node  = start;
+        do {
+            egw_modbus_req_slot_t *next = node->next;
+            free(node->buf);
+            free(node);
+            node = next;
+        } while (node != start);
     }
-    free(c->recv_buf);
-    free(c);
+    free(client->recv_buf);
+    free(client);
 }
 
-egw_modbus_req_slot_t *egw_modbus_client_register(egw_modbus_client_t *c,
-                                                    const egw_modbus_req_params_t *params)
+/* ── 请求管理 ─────────────────────────────────────────── */
+
+egw_modbus_req_slot_t *egw_modbus_client_register(egw_modbus_client_t *client,
+                                                    const egw_modbus_encode_params_t *params)
 {
-    if (!c || !params) { return NULL; }
+    if (!client || !params) { return NULL; }
 
-    egw_modbus_req_slot_t *s = calloc(1, sizeof(*s));
-    if (!s) { return NULL; }
+    egw_modbus_req_slot_t *slot = calloc(1, sizeof(*slot));
+    if (!slot) { return NULL; }
 
-    s->buf = malloc(EGW_MODBUS_MAX_FRAME);
-    if (!s->buf) { free(s); return NULL; }
+    slot->buf = egw_modbus_encode(client->transport, params, &slot->len);
+    if (!slot->buf || slot->len == 0) { free(slot); return NULL; }
 
-    uint8_t pdu[EGW_MODBUS_MAX_PDU];
-    size_t pdu_len = egw_modbus_build_read_pdu(pdu, params->funccode,
-                                                 params->addr, params->count);
-    if (pdu_len == 0) { free(s->buf); free(s); return NULL; }
+    slot->unit_id = params->unit_id;
+    slot->addr    = params->addr;
 
-    s->len = c->wrap(s->buf, params->unit_id, pdu, pdu_len);
-    if (s->len == 0) { free(s->buf); free(s); return NULL; }
+    if (!client->slots) {
+        slot->next = slot->prev = slot;
+        client->slots = slot;
+    } else {
+        slot->next = client->slots;
+        slot->prev = client->slots->prev;
+        client->slots->prev->next = slot;
+        client->slots->prev = slot;
+    }
+    return slot;
+}
 
-    s->unit_id = params->unit_id;
-    s->addr    = params->addr;
-    s->next    = c->slots;
-    c->slots   = s;
-    return s;
+void egw_modbus_client_remove(egw_modbus_client_t *client,
+                               egw_modbus_req_slot_t *slot)
+{
+    if (!client || !slot || !client->slots) { return; }
+
+    if (slot->next == slot) {
+        client->slots = NULL;
+    } else {
+        slot->next->prev = slot->prev;
+        slot->prev->next = slot->next;
+        if (client->slots == slot) {
+            client->slots = slot->next;
+        }
+    }
+    free(slot->buf);
+    free(slot);
 }
 
 /* ── Hex 日志 ────────────────────────────────────────── */
@@ -158,105 +173,107 @@ static void log_hex(const char *tag, const uint8_t *buf, size_t len)
     EGW_LOGI("  [client] %s (%zu): %s", tag, len, hex);
 }
 
-const uint8_t *egw_modbus_client_send(egw_modbus_client_t *c,
-                                       egw_modbus_req_slot_t *slot,
-                                       size_t *len)
+const uint8_t *egw_modbus_client_request(egw_modbus_client_t *client,
+                                          egw_modbus_req_slot_t *slot,
+                                          size_t *len)
 {
-    if (!c || !slot || !len) { return NULL; }
-    c->current  = slot;
-    c->recv_len = 0;
+    if (!client || !slot || !len) { return NULL; }
+    client->current  = slot;
+    client->recv_len = 0;
     *len = slot->len;
     log_hex("send", slot->buf, slot->len);
     return slot->buf;
 }
 
-/* ── Hex 日志 ────────────────────────────────────────── */
+/* ── 接收与解析 ──────────────────────────────────────── */
 
-/* ── 解析已就绪的响应帧，调回调 ──────────────────────── */
-
-static void client_handle_frame(egw_modbus_client_t *c)
+static void client_handle_frame(egw_modbus_client_t *client)
 {
-    egw_modbus_req_slot_t *s = c->current;
-    if (!s) { return; }
+    egw_modbus_req_slot_t *slot = client->current;
+    if (!slot) { return; }
 
     uint8_t pdu[EGW_MODBUS_MAX_PDU];
     size_t pdu_len = 0;
     uint8_t unit_id = 0;
 
-    if (c->unwrap(c->recv_buf, c->recv_len,
-                   &unit_id, pdu, &pdu_len) != EGW_OK) {
-        egw_modbus_result_t r = { .unit_id = s->unit_id, .addr = s->addr,
+    if (egw_modbus_decode(client->transport,
+                            client->recv_buf, client->recv_len,
+                            &unit_id, pdu, &pdu_len) != EGW_OK) {
+        egw_modbus_result_t r = { .unit_id = slot->unit_id, .addr = slot->addr,
                                    .regs = NULL, .reg_count = -1 };
-        c->done_cb(&r, c->cb_arg);
+        client->done_cb(&r, client->cb_arg);
         return;
     }
 
-    log_hex("recv", c->recv_buf, c->recv_len);
+    log_hex("recv", client->recv_buf, client->recv_len);
 
-    if (unit_id != s->unit_id) {
-        egw_modbus_result_t r = { .unit_id = s->unit_id, .addr = s->addr,
+    if (unit_id != slot->unit_id) {
+        egw_modbus_result_t r = { .unit_id = slot->unit_id, .addr = slot->addr,
                                    .regs = NULL, .reg_count = -1 };
-        c->done_cb(&r, c->cb_arg);
+        client->done_cb(&r, client->cb_arg);
         return;
     }
 
     uint16_t regs[128];
-    uint8_t funccode = s->buf[1];
-    int n = egw_modbus_parse_read_pdu(pdu, pdu_len, funccode, regs, 128);
-    if (n < 0) {
-        egw_modbus_result_t r = { .unit_id = s->unit_id, .addr = s->addr,
+    uint8_t funccode = slot->buf[1];
+    int reg_count = egw_modbus_parse_read_pdu(pdu, pdu_len, funccode,
+                                               regs, 128);
+    if (reg_count < 0) {
+        egw_modbus_result_t r = { .unit_id = slot->unit_id, .addr = slot->addr,
                                    .regs = NULL, .reg_count = -1 };
-        c->done_cb(&r, c->cb_arg);
+        client->done_cb(&r, client->cb_arg);
         return;
     }
 
-    egw_modbus_result_t r = { .unit_id = s->unit_id, .addr = s->addr,
-                               .regs = regs, .reg_count = n };
-    c->done_cb(&r, c->cb_arg);
+    egw_modbus_result_t r = { .unit_id = slot->unit_id, .addr = slot->addr,
+                               .regs = regs, .reg_count = reg_count };
+    client->done_cb(&r, client->cb_arg);
 }
 
-void egw_modbus_client_feed(egw_modbus_client_t *c,
+void egw_modbus_client_feed(egw_modbus_client_t *client,
                               const uint8_t *data, size_t len)
 {
-    if (!c || !data || len == 0 || !c->current) { return; }
+    if (!client || !data || len == 0 || !client->current) { return; }
 
-    size_t avail = c->recv_cap - c->recv_len;
-    if (len > avail) { c->recv_len = 0; return; }
-    memcpy(c->recv_buf + c->recv_len, data, len);
-    c->recv_len += len;
+    size_t avail = client->recv_cap - client->recv_len;
+    if (len > avail) { client->recv_len = 0; return; }
+    memcpy(client->recv_buf + client->recv_len, data, len);
+    client->recv_len += len;
 
     size_t frame_len = 0;
-    egw_proto_result_t r = resp_parse(c->recv_buf, c->recv_len, &frame_len);
-    if (r == EGW_PROTO_FRAME_READY) {
-        c->recv_len = frame_len;
-        client_handle_frame(c);
-    } else if (r == EGW_PROTO_FRAME_ERROR) {
-        c->recv_len = 0;
+    egw_proto_result_t result = resp_parse(client->recv_buf, client->recv_len,
+                                            &frame_len);
+    if (result == EGW_PROTO_FRAME_READY) {
+        client->recv_len = frame_len;
+        client_handle_frame(client);
+    } else if (result == EGW_PROTO_FRAME_ERROR) {
+        client->recv_len = 0;
     }
 }
 
-uint8_t *egw_modbus_client_reserve(egw_modbus_client_t *c, size_t *avail)
+uint8_t *egw_modbus_client_reserve(egw_modbus_client_t *client, size_t *avail)
 {
-    if (!c || !c->current || !avail) {
+    if (!client || !client->current || !avail) {
         if (avail) { *avail = 0; }
         return NULL;
     }
-    *avail = c->recv_cap - c->recv_len;
-    return c->recv_buf + c->recv_len;
+    *avail = client->recv_cap - client->recv_len;
+    return client->recv_buf + client->recv_len;
 }
 
-void egw_modbus_client_commit(egw_modbus_client_t *c, size_t n)
+void egw_modbus_client_commit(egw_modbus_client_t *client, size_t nbytes)
 {
-    if (!c || n == 0 || !c->current) { return; }
-    if (c->recv_len + n > c->recv_cap) { c->recv_len = 0; return; }
-    c->recv_len += n;
+    if (!client || nbytes == 0 || !client->current) { return; }
+    if (client->recv_len + nbytes > client->recv_cap) { client->recv_len = 0; return; }
+    client->recv_len += nbytes;
 
     size_t frame_len = 0;
-    egw_proto_result_t r = resp_parse(c->recv_buf, c->recv_len, &frame_len);
-    if (r == EGW_PROTO_FRAME_READY) {
-        c->recv_len = frame_len;
-        client_handle_frame(c);
-    } else if (r == EGW_PROTO_FRAME_ERROR) {
-        c->recv_len = 0;
+    egw_proto_result_t result = resp_parse(client->recv_buf, client->recv_len,
+                                            &frame_len);
+    if (result == EGW_PROTO_FRAME_READY) {
+        client->recv_len = frame_len;
+        client_handle_frame(client);
+    } else if (result == EGW_PROTO_FRAME_ERROR) {
+        client->recv_len = 0;
     }
 }

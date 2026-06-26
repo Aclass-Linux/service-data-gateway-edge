@@ -9,81 +9,53 @@ typedef struct egw_modbus_req_slot egw_modbus_req_slot_t;
 
 /* ── Client（主站） ──────────────────────────────────── */
 
-/** @brief 主站句柄（不透明，内部持有请求链表 + 接收缓冲区） */
 typedef struct egw_modbus_client egw_modbus_client_t;
 
-/** @brief 创建主站实例
- *  @param transport RTU 或 TCP
- *  @param done_cb  读完成回调
- *  @param cb_arg   回调用户参数
- *  @return 句柄，失败返回 NULL
- */
-egw_modbus_client_t *egw_modbus_client_create(egw_modbus_transport_t transport,
-                                                egw_modbus_done_cb done_cb,
-                                                void *cb_arg);
-
-/** @brief 销毁主站实例
- *  释放内部所有 slot 的帧缓冲区及接收缓冲区。 */
-void egw_modbus_client_destroy(egw_modbus_client_t *c);
-
-/** @brief 注册一个 Modbus 读请求的参数字段 */
+/** @brief 主站创建参数 */
 typedef struct {
-    uint8_t  unit_id;    /**< 从站地址 */
-    uint8_t  funccode;   /**< 功能码（EGW_MODBUS_FC_READ_*） */
-    uint16_t addr;       /**< 寄存器起始地址 */
-    uint16_t count;      /**< 寄存器数量 */
-} egw_modbus_req_params_t;
+    egw_modbus_transport_t  transport;   /**< RTU 或 TCP */
+    size_t                  recv_cap;    /**< 接收缓冲区容量（0=默认 EGW_MODBUS_MAX_FRAME） */
+    egw_modbus_done_cb      done_cb;     /**< 读完成回调 */
+    void                   *cb_arg;      /**< 回调用户参数 */
+} egw_modbus_client_params_t;
 
-/** @brief 注册一个 Modbus 读请求
- *
- * 构建 PDU → 打包为完整 ADU（CRC/MBAP），结果存入 slot。
- * 一次注册，之后反复发送不再重建帧。
- *
- *  @param c      主站句柄
- *  @param params 请求参数
- *  @return slot 句柄，失败返回 NULL
- */
-egw_modbus_req_slot_t *egw_modbus_client_register(egw_modbus_client_t *c,
-                                                    const egw_modbus_req_params_t *params);
+/** @brief 创建主站实例 */
+egw_modbus_client_t *egw_modbus_client_create(const egw_modbus_client_params_t *params);
 
-/** @brief 获取请求帧并标记该 slot 为当前
+/** @brief 销毁主站实例（释放链表全部 slot 及缓冲区） */
+void egw_modbus_client_destroy(egw_modbus_client_t *client);
+
+/* ── 请求管理 ─────────────────────────────────────────── */
+
+/** @brief 注册请求，追加到环形链表尾部
+ *  @return slot 指针，供 request / remove 使用 */
+egw_modbus_req_slot_t *egw_modbus_client_register(egw_modbus_client_t *client,
+                                                    const egw_modbus_encode_params_t *params);
+
+/** @brief 从环形链表移除并释放一个 slot */
+void egw_modbus_client_remove(egw_modbus_client_t *client,
+                               egw_modbus_req_slot_t *slot);
+
+/** @brief 发起指定 slot 的请求
  *
- * 返回 slot 的请求帧指针 + 长度，同时清除接收缓冲区，
- * 准备接收该 slot 对应的响应。
+ * 设 current = slot，清接收缓冲区。
+ * 返回帧指针供 transport write。
  *
- *  @param c     主站句柄
- *  @param slot  slot 句柄
+ *  @param slot  由 register 返回的 slot 指针
  *  @param len   输出帧长度
- *  @return 帧数据指针（指向 slot 内部缓冲区，destroy 前有效）
+ *  @return 帧数据指针
  */
-const uint8_t *egw_modbus_client_send(egw_modbus_client_t *c,
-                                       egw_modbus_req_slot_t *slot,
-                                       size_t *len);
+const uint8_t *egw_modbus_client_request(egw_modbus_client_t *client,
+                                          egw_modbus_req_slot_t *slot,
+                                          size_t *len);
 
-/** @brief 喂入响应字节（memcpy 路径）
- *
- * 数据拷贝到内部接收缓冲区，尝试帧定界。
- * 收到完整帧后自动解包→解析寄存器→调 done_cb。
- * 帧错误时清空接收缓冲区。 */
-void egw_modbus_client_feed(egw_modbus_client_t *c,
+/* ── 数据接收 ─────────────────────────────────────────── */
+
+void egw_modbus_client_feed(egw_modbus_client_t *client,
                               const uint8_t *data, size_t len);
 
-/** @brief 获取可写接收缓冲区（零拷贝路径）
- *
- * 返回内部接收缓冲区的空闲部分指针，
- * 调用方直接通过 transport read 写入，省一次 memcpy。
- * 写入后需调用 egw_modbus_client_commit 提交。
- *
- *  @param c     主站句柄
- *  @param avail 输出可写字节数
- *  @return 可写指针，失败返回 NULL
- */
-uint8_t *egw_modbus_client_reserve(egw_modbus_client_t *c, size_t *avail);
+uint8_t *egw_modbus_client_reserve(egw_modbus_client_t *client, size_t *avail);
 
-/** @brief 提交已写入的接收字节
- *
- * 将 reserve 写入的字节数提交给解析器，
- * 触发帧定界 + 校验 + 回调。 */
-void egw_modbus_client_commit(egw_modbus_client_t *c, size_t n);
+void egw_modbus_client_commit(egw_modbus_client_t *client, size_t nbytes);
 
 #endif /* EGW_MODBUS_CLIENT_H */

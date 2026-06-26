@@ -3,114 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-/* ── PDU 构建── ──────────────────────────────────────── */
-
-static size_t build_pdu(uint8_t *pdu, uint8_t fc,
-                         const uint8_t *payload, size_t payload_len)
-{
-    if (!pdu) {
-        return 0;
-    }
-    pdu[0] = fc;
-    if (payload_len > 0 && payload) {
-        memcpy(pdu + 1, payload, payload_len);
-    }
-    return 1 + payload_len;
-}
-
-size_t egw_modbus_build_read_pdu(uint8_t *pdu, uint8_t fc,
-                                  uint16_t addr, uint16_t count)
-{
-    if (!pdu || fc < 1 || fc > 4 || count == 0) {
-        return 0;
-    }
-
-    uint8_t payload[4];
-    payload[0] = (uint8_t)(addr >> 8);
-    payload[1] = (uint8_t)(addr & 0xFF);
-    payload[2] = (uint8_t)(count >> 8);
-    payload[3] = (uint8_t)(count & 0xFF);
-    return build_pdu(pdu, fc, payload, 4);
-}
-
-size_t egw_modbus_build_write_single_coil_pdu(uint8_t *pdu,
-                                               uint16_t addr, uint16_t value)
-{
-    if (!pdu) {
-        return 0;
-    }
-    uint8_t payload[4];
-    payload[0] = (uint8_t)(addr >> 8);
-    payload[1] = (uint8_t)(addr & 0xFF);
-    payload[2] = (uint8_t)(value >> 8);
-    payload[3] = (uint8_t)(value & 0xFF);
-    return build_pdu(pdu, 0x05, payload, 4);
-}
-
-size_t egw_modbus_build_write_single_reg_pdu(uint8_t *pdu,
-                                              uint16_t addr, uint16_t value)
-{
-    if (!pdu) {
-        return 0;
-    }
-    uint8_t payload[4];
-    payload[0] = (uint8_t)(addr >> 8);
-    payload[1] = (uint8_t)(addr & 0xFF);
-    payload[2] = (uint8_t)(value >> 8);
-    payload[3] = (uint8_t)(value & 0xFF);
-    return build_pdu(pdu, 0x06, payload, 4);
-}
-
-size_t egw_modbus_build_write_multiple_coils_pdu(uint8_t *pdu, uint16_t addr,
-                                                  const uint8_t *values,
-                                                  uint16_t count)
-{
-    if (!pdu || !values || count == 0 || count > 2000) {
-        return 0;
-    }
-
-    uint8_t byte_count = (uint8_t)((count + 7) / 8);
-    uint8_t payload[EGW_MODBUS_MAX_PDU];
-    payload[0] = (uint8_t)(addr >> 8);
-    payload[1] = (uint8_t)(addr & 0xFF);
-    payload[2] = (uint8_t)(count >> 8);
-    payload[3] = (uint8_t)(count & 0xFF);
-    payload[4] = byte_count;
-    memcpy(payload + 5, values, byte_count);
-    return build_pdu(pdu, 0x0F, payload, 5 + byte_count);
-}
-
-size_t egw_modbus_build_write_multiple_regs_pdu(uint8_t *pdu, uint16_t addr,
-                                                 const uint16_t *values,
-                                                 uint16_t count)
-{
-    if (!pdu || !values || count == 0 || count > 123) {
-        return 0;
-    }
-
-    uint8_t byte_count = (uint8_t)(count * 2);
-    uint8_t payload[EGW_MODBUS_MAX_PDU];
-    payload[0] = (uint8_t)(addr >> 8);
-    payload[1] = (uint8_t)(addr & 0xFF);
-    payload[2] = (uint8_t)(count >> 8);
-    payload[3] = (uint8_t)(count & 0xFF);
-    payload[4] = byte_count;
-    for (uint16_t i = 0; i < count; i++) {
-        payload[5 + i * 2]     = (uint8_t)(values[i] >> 8);
-        payload[5 + i * 2 + 1] = (uint8_t)(values[i] & 0xFF);
-    }
-    return build_pdu(pdu, 0x10, payload, 5 + byte_count);
-}
-
-size_t egw_modbus_build_exception_pdu(uint8_t *pdu, uint8_t fc, uint8_t exc)
-{
-    if (!pdu) {
-        return 0;
-    }
-    pdu[0] = (uint8_t)(fc | 0x80);
-    pdu[1] = exc;
-    return 2;
-}
+/* ── 构建读响应 PDU（服务器用） ──────────────────────── */
 
 size_t egw_modbus_build_read_resp_pdu(uint8_t *pdu, uint8_t fc,
                                        const uint8_t *data, size_t data_len)
@@ -250,43 +143,10 @@ egw_err_t egw_modbus_parse_request(const uint8_t *pdu, size_t len,
 
 /* ── 帧封装／解封装（输运层） ──────────────────────────── */
 
-size_t egw_modbus_wrap_pdu(uint8_t *buf, egw_modbus_transport_t transport,
-                            uint8_t unit_id,
-                            const uint8_t *pdu, size_t pdu_len,
-                            uint16_t tid)
-{
-    if (!buf || !pdu || pdu_len == 0) { return 0; }
-
-    switch (transport) {
-    case EGW_MODBUS_RTU: {
-        if (pdu_len + 3 > EGW_MODBUS_MAX_FRAME) { return 0; }
-        buf[0] = unit_id;
-        memcpy(buf + 1, pdu, pdu_len);
-        uint16_t crc = egw_crc_modbus_table(buf, pdu_len + 1);
-        buf[pdu_len + 1] = (uint8_t)(crc & 0xFF);
-        buf[pdu_len + 2] = (uint8_t)(crc >> 8);
-        return pdu_len + 3;
-    }
-    case EGW_MODBUS_TCP: {
-        if (pdu_len + 7 > EGW_MODBUS_MAX_FRAME) { return 0; }
-        uint16_t mbap_len = (uint16_t)(pdu_len + 1);
-        buf[0] = (uint8_t)(tid >> 8);
-        buf[1] = (uint8_t)(tid & 0xFF);
-        buf[2] = 0; buf[3] = 0;
-        buf[4] = (uint8_t)(mbap_len >> 8);
-        buf[5] = (uint8_t)(mbap_len & 0xFF);
-        buf[6] = unit_id;
-        memcpy(buf + 7, pdu, pdu_len);
-        return pdu_len + 7;
-    }
-    }
-    return 0;
-}
-
-egw_err_t egw_modbus_unwrap_frame(const uint8_t *frame, size_t len,
-                                   egw_modbus_transport_t transport,
-                                   uint8_t *unit_id_out,
-                                   uint8_t *pdu_out, size_t *pdu_len_out)
+static egw_err_t egw_modbus_decode_pdu(const uint8_t *frame, size_t len,
+                                       egw_modbus_transport_t transport,
+                                       uint8_t *unit_id_out,
+                                       uint8_t *pdu_out, size_t *pdu_len_out)
 {
     if (!frame || !unit_id_out || !pdu_out || !pdu_len_out) {
         return EGW_RET_CODE(ERR_INVALID_ARG);
@@ -318,32 +178,149 @@ egw_err_t egw_modbus_unwrap_frame(const uint8_t *frame, size_t len,
     }
     return EGW_RET_CODE(ERR_INVALID_ARG);
 }
-/* ── 输运打包/解包适配器 ──────────────────────────── */
 
-size_t egw_modbus_wrap_rtu(uint8_t *buf, uint8_t unit_id,
-                            const uint8_t *pdu, size_t pdu_len)
+/* ── write_pdu: 算长度 → 分配/借用 → 写 PDU ──────────── */
+
+static uint8_t* alloc_buf(size_t *out_len, uint8_t *buf, size_t cap,
+                           size_t adu_len)
 {
-    return egw_modbus_wrap_pdu(buf, EGW_MODBUS_RTU, unit_id, pdu, pdu_len, 0);
+    if (buf) {
+        if (adu_len > cap) { *out_len = 0; return NULL; }
+        memset(buf, 0, adu_len);
+        *out_len = adu_len;
+        return buf;
+    }
+    buf = (uint8_t *)calloc(1, adu_len);
+    if (!buf) { *out_len = 0; return NULL; }
+    *out_len = adu_len;
+    return buf;
 }
 
-size_t egw_modbus_wrap_tcp(uint8_t *buf, uint8_t unit_id,
-                            const uint8_t *pdu, size_t pdu_len)
+static uint8_t* write_pdu(size_t *out_len,
+                           const egw_modbus_encode_params_t *params,
+                           egw_modbus_transport_t transport)
 {
-    return egw_modbus_wrap_pdu(buf, EGW_MODBUS_TCP, unit_id, pdu, pdu_len, 0);
+    size_t pdu_off = (transport == EGW_MODBUS_RTU) ? 1 : 7;
+    size_t adu_len;
+    uint8_t *buf;
+    uint8_t byte_cnt;
+    switch (params->type) {
+    case EGW_ENCODE_FROM_PARAMS:
+        switch (params->funccode) {
+        case 0x01: case 0x02: case 0x03: case 0x04:
+            adu_len = pdu_off + 5 + ((transport == EGW_MODBUS_RTU) ? 2 : 0);
+            buf = alloc_buf(out_len, params->buf, params->cap, adu_len);
+            if (!buf) { *out_len = 0; return NULL; }
+            buf[pdu_off]     = params->funccode;
+            buf[pdu_off + 1] = (uint8_t)(params->addr >> 8);
+            buf[pdu_off + 2] = (uint8_t)(params->addr & 0xFF);
+            buf[pdu_off + 3] = (uint8_t)(params->count >> 8);
+            buf[pdu_off + 4] = (uint8_t)(params->count & 0xFF);
+            return buf;
+        case 0x05:
+            adu_len = pdu_off + 5 + ((transport == EGW_MODBUS_RTU) ? 2 : 0);
+            buf = alloc_buf(out_len, params->buf, params->cap, adu_len);
+            if (!buf) { *out_len = 0; return NULL; }
+            buf[pdu_off]     = 0x05;
+            buf[pdu_off + 1] = (uint8_t)(params->addr >> 8);
+            buf[pdu_off + 2] = (uint8_t)(params->addr & 0xFF);
+            buf[pdu_off + 3] = params->data ? ((const uint8_t *)params->data)[0] : 0;
+            buf[pdu_off + 4] = params->data ? ((const uint8_t *)params->data)[1] : 0;
+            return buf;
+        case 0x06:
+            adu_len = pdu_off + 5 + ((transport == EGW_MODBUS_RTU) ? 2 : 0);
+            buf = alloc_buf(out_len, params->buf, params->cap, adu_len);
+            if (!buf) { *out_len = 0; return NULL; }
+            buf[pdu_off]     = 0x06;
+            buf[pdu_off + 1] = (uint8_t)(params->addr >> 8);
+            buf[pdu_off + 2] = (uint8_t)(params->addr & 0xFF);
+            buf[pdu_off + 3] = params->data ? ((const uint8_t *)params->data)[0] : 0;
+            buf[pdu_off + 4] = params->data ? ((const uint8_t *)params->data)[1] : 0;
+            return buf;
+        case 0x0F:
+            byte_cnt = (uint8_t)((params->count + 7) / 8);
+            adu_len = pdu_off + (size_t)5 + byte_cnt
+                    + ((transport == EGW_MODBUS_RTU) ? 2 : 0);
+            buf = alloc_buf(out_len, params->buf, params->cap, adu_len);
+            if (!buf) { *out_len = 0; return NULL; }
+            buf[pdu_off]     = 0x0F;
+            buf[pdu_off + 1] = (uint8_t)(params->addr >> 8);
+            buf[pdu_off + 2] = (uint8_t)(params->addr & 0xFF);
+            buf[pdu_off + 3] = (uint8_t)(params->count >> 8);
+            buf[pdu_off + 4] = (uint8_t)(params->count & 0xFF);
+            buf[pdu_off + 5] = byte_cnt;
+            memcpy(buf + pdu_off + 6, params->data, byte_cnt);
+            return buf;
+        case 0x10:
+            byte_cnt = (uint8_t)(params->count * 2);
+            adu_len = pdu_off + (size_t)5 + byte_cnt
+                    + ((transport == EGW_MODBUS_RTU) ? 2 : 0);
+            buf = alloc_buf(out_len, params->buf, params->cap, adu_len);
+            if (!buf) { *out_len = 0; return NULL; }
+            buf[pdu_off]     = 0x10;
+            buf[pdu_off + 1] = (uint8_t)(params->addr >> 8);
+            buf[pdu_off + 2] = (uint8_t)(params->addr & 0xFF);
+            buf[pdu_off + 3] = (uint8_t)(params->count >> 8);
+            buf[pdu_off + 4] = (uint8_t)(params->count & 0xFF);
+            buf[pdu_off + 5] = byte_cnt;
+            memcpy(buf + pdu_off + 6, params->data, byte_cnt);
+            return buf;
+        }
+        *out_len = 0; return NULL;
+
+    case EGW_ENCODE_PDU:
+        adu_len = pdu_off + params->pdu_len
+                + ((transport == EGW_MODBUS_RTU) ? 2 : 0);
+        buf = alloc_buf(out_len, params->buf, params->cap, adu_len);
+        if (!buf) { *out_len = 0; return NULL; }
+        memcpy(buf + pdu_off, params->pdu, params->pdu_len);
+        return buf;
+
+    case EGW_ENCODE_EXCEPTION:
+        adu_len = pdu_off + 2 + ((transport == EGW_MODBUS_RTU) ? 2 : 0);
+        buf = alloc_buf(out_len, params->buf, params->cap, adu_len);
+        if (!buf) { *out_len = 0; return NULL; }
+        buf[pdu_off]     = (uint8_t)(params->funccode | 0x80);
+        buf[pdu_off + 1] = params->exc_code;
+        return buf;
+    }
+    *out_len = 0; return NULL;
 }
 
-egw_err_t egw_modbus_unwrap_rtu(const uint8_t *frame, size_t len,
-                                 uint8_t *unit_id_out,
-                                 uint8_t *pdu_out, size_t *pdu_len_out)
+/* ── egw_modbus_encode: 写帧头 + CRC ────────────────── */
+
+uint8_t* egw_modbus_encode(egw_modbus_transport_t transport,
+                            const egw_modbus_encode_params_t *params,
+                            size_t *out_len)
 {
-    return egw_modbus_unwrap_frame(frame, len, EGW_MODBUS_RTU,
+    if (!params || !out_len) { return NULL; }
+
+    uint8_t *buf = write_pdu(out_len, params, transport);
+    if (!buf || *out_len == 0) { return NULL; }
+
+    if (transport == EGW_MODBUS_RTU) {
+        buf[0] = params->unit_id;
+        uint16_t crc = egw_crc_modbus_table(buf, *out_len - 2);
+        buf[*out_len - 2] = (uint8_t)(crc & 0xFF);
+        buf[*out_len - 1] = (uint8_t)(crc >> 8);
+    } else {
+        uint16_t mbap_len = (uint16_t)(*out_len - 6);
+        buf[0] = 0; buf[1] = 0;
+        buf[2] = 0; buf[3] = 0;
+        buf[4] = (uint8_t)(mbap_len >> 8);
+        buf[5] = (uint8_t)(mbap_len & 0xFF);
+        buf[6] = params->unit_id;
+    }
+
+    return buf;
+}
+
+egw_err_t egw_modbus_decode(egw_modbus_transport_t transport,
+                             const uint8_t *frame, size_t len,
+                             uint8_t *unit_id_out,
+                             uint8_t *pdu_out, size_t *pdu_len_out)
+{
+    return egw_modbus_decode_pdu(frame, len, transport,
                                     unit_id_out, pdu_out, pdu_len_out);
 }
 
-egw_err_t egw_modbus_unwrap_tcp(const uint8_t *frame, size_t len,
-                                 uint8_t *unit_id_out,
-                                 uint8_t *pdu_out, size_t *pdu_len_out)
-{
-    return egw_modbus_unwrap_frame(frame, len, EGW_MODBUS_TCP,
-                                    unit_id_out, pdu_out, pdu_len_out);
-}

@@ -185,7 +185,6 @@ typedef struct {
     egw_transport_handle_t *srv_h;
     egw_modbus_server_t *server;
     egw_modbus_client_t    *cli;
-    egw_modbus_req_slot_t  *slot;
     loopback_phase_t     phase;
     uv_poll_t            cli_poll;
     uv_poll_t            srv_poll;
@@ -245,15 +244,14 @@ static void on_srv_poll(uv_poll_t *p, int status, int events)
     }
 
     egw_modbus_server_commit(lb->server, rlen);
-    if (!egw_modbus_server_response_ready(lb->server)) {
-        return;
-    }
-
-    /* 响应就绪 → 发送 → 切到 client 接收阶段 */
-    EGW_LOGI("    [server] recv request, → response ready");
 
     size_t resp_len = 0;
     const uint8_t *resp = egw_modbus_server_get_response(lb->server, &resp_len);
+    if (!resp) {
+        return;
+    }
+    EGW_LOGI("    [server] recv request, → response ready");
+
     size_t written = 0;
     egw_transport_write(lb->srv_h, resp, &written, resp_len);
     egw_modbus_server_response_sent(lb->server);
@@ -287,8 +285,6 @@ static void on_cli_poll(uv_poll_t *p, int status, int events)
     }
 
     egw_modbus_client_commit(lb->cli, rlen);
-    uv_poll_stop(&lb->cli_poll);
-    EGW_LOGI("    [client] done_cb fired (phase→DONE)");
 }
 
 /* ── 超时定时器 ─────────────────────────────────────── */
@@ -336,7 +332,7 @@ static void run_modbus_loopback(void)
     /* 2. 创建从站 (RTU, unit=1) */
     lb.server = egw_modbus_server_create(&(egw_modbus_server_params_t){
         .transport = EGW_MODBUS_RTU,
-        .unit_id   = 1,
+        .unit_ids  = {1},
         .read_cb   = loopback_srv_read_cb,
     });
     if (!lb.server) {
@@ -345,20 +341,24 @@ static void run_modbus_loopback(void)
     }
 
     /* 3. 创建主站 + 注册请求 (FC03 read 2 holding regs, addr=0, unit=1) */
-    lb.cli = egw_modbus_client_create(EGW_MODBUS_RTU,
-                                       loopback_cli_done_cb, &lb);
+    lb.cli = egw_modbus_client_create(&(egw_modbus_client_params_t){
+        .transport = EGW_MODBUS_RTU,
+        .done_cb   = loopback_cli_done_cb,
+        .cb_arg    = &lb,
+    });
     if (!lb.cli) {
         EGW_LOGE("  client_create failed");
         goto cleanup;
     }
-    lb.slot = egw_modbus_client_register(lb.cli, &(egw_modbus_req_params_t){
-        .unit_id  = 1,
-        .funccode = EGW_MODBUS_FC_READ_HOLDING_REGISTERS,
-        .addr     = 0,
-        .count    = 2,
-    });
-    if (!lb.slot) {
-        EGW_LOGE("  register failed");
+    egw_modbus_req_slot_t *req_slot = egw_modbus_client_register(lb.cli,
+        &(egw_modbus_encode_params_t){
+            .unit_id  = 1,
+            .funccode = EGW_MODBUS_FC_READ_HOLDING_REGISTERS,
+            .addr     = 0,
+            .count    = 2,
+        });
+    if (!req_slot) {
+        EGW_LOGE("  client register failed");
         goto cleanup;
     }
     EGW_LOGI("  client: req built (fc=03 addr=0 qty=2)");
@@ -366,8 +366,7 @@ static void run_modbus_loopback(void)
     /* 4. Client 发送请求 → /tmp/ttyV0 */
     {
         size_t frame_len = 0;
-        const uint8_t *frame = egw_modbus_client_send(lb.cli, lb.slot,
-                                                       &frame_len);
+        const uint8_t *frame = egw_modbus_client_request(lb.cli, req_slot, &frame_len);
         size_t written = 0;
         egw_err_t err = egw_transport_write(lb.cli_h, frame,
                                               &written, frame_len);

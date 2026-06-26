@@ -63,34 +63,7 @@ typedef enum {
     EGW_MODBUS_TCP = 2,  /**< TCP/IP（MBAP 头部，无 CRC） */
 } egw_modbus_transport_t;
 
-/* ── PDU 构建（传输无关） ────────────────────────────── */
-
-/** @brief 构建读请求 PDU（FC01-04） */
-size_t egw_modbus_build_read_pdu(uint8_t *pdu, uint8_t fc,
-                                  uint16_t addr, uint16_t count);
-
-/** @brief 构建写单线圈 PDU（FC05） */
-size_t egw_modbus_build_write_single_coil_pdu(uint8_t *pdu,
-                                               uint16_t addr, uint16_t value);
-
-/** @brief 构建写单寄存器 PDU（FC06） */
-size_t egw_modbus_build_write_single_reg_pdu(uint8_t *pdu,
-                                              uint16_t addr, uint16_t value);
-
-/** @brief 构建写多线圈 PDU（FC15） */
-size_t egw_modbus_build_write_multiple_coils_pdu(uint8_t *pdu, uint16_t addr,
-                                                  const uint8_t *values,
-                                                  uint16_t count);
-
-/** @brief 构建写多寄存器 PDU（FC16） */
-size_t egw_modbus_build_write_multiple_regs_pdu(uint8_t *pdu, uint16_t addr,
-                                                 const uint16_t *values,
-                                                 uint16_t count);
-
-/** @brief 构建异常响应 PDU */
-size_t egw_modbus_build_exception_pdu(uint8_t *pdu, uint8_t fc, uint8_t exc);
-
-/** @brief 构建读响应 PDU（FC01-04） */
+/* ── 构建读响应 PDU（FC01-04，服务器用） ────────────────── */
 size_t egw_modbus_build_read_resp_pdu(uint8_t *pdu, uint8_t fc,
                                        const uint8_t *data, size_t data_len);
 
@@ -118,48 +91,62 @@ egw_err_t egw_modbus_parse_request(const uint8_t *pdu, size_t len,
 
 /* ── 帧封装／解封装（输运层） ────────────────────────── */
 
-/** @brief Modbus 读请求完成结果（回调参数） */
+/** @brief 编码模式 */
+typedef enum {
+    EGW_ENCODE_FROM_PARAMS,   /**< 从 funccode/addr/count/data 构建 PDU 再打包 */
+    EGW_ENCODE_PDU,           /**< 已有 PDU，直接打包 */
+    EGW_ENCODE_EXCEPTION,     /**< 从 funccode + exc_code 构建异常 PDU 再打包 */
+} egw_modbus_encode_type_t;
+
+/** @brief encode 统一入参
+ *
+ * 三个模式共用此结构，通过 type 字段区分。
+ * - FROM_PARAMS: 填 unit_id/funccode/addr/count/data
+ * - PDU:         填 unit_id/pdu/pdu_len
+ * - EXCEPTION:   填 unit_id/funccode/exc_code
+ *
+ * buf/cap：非 NULL 时 encode 写入此缓冲区；NULL 时 encode 自行 malloc */
 typedef struct {
-    uint8_t           unit_id;    /**< 从站地址 */
-    uint16_t          addr;       /**< 寄存器地址 */
-    const uint16_t   *regs;       /**< 寄存器值数组（CPU 字节序，回调期间有效） */
-    int               reg_count;  /**< 寄存器数量（< 0 表示错误） */
+    egw_modbus_encode_type_t  type;
+
+    uint8_t        unit_id;
+    uint8_t        funccode;
+    uint16_t       addr;
+    uint16_t       count;
+    const void    *data;
+    size_t         data_len;
+
+    const uint8_t *pdu;       /* EGW_ENCODE_PDU 时使用 */
+    size_t         pdu_len;
+
+    uint8_t        exc_code;  /* EGW_ENCODE_EXCEPTION 时使用 */
+
+    uint8_t       *buf;       /* 外部缓冲区，NULL 则内部分配 */
+    size_t         cap;
+} egw_modbus_encode_params_t;
+
+typedef struct {
+    uint8_t           unit_id;
+    uint16_t          addr;
+    const uint16_t   *regs;
+    int               reg_count;
 } egw_modbus_result_t;
 
-/** @brief Modbus 读完成回调 */
 typedef void (*egw_modbus_done_cb)(const egw_modbus_result_t *result, void *arg);
 
-/** @brief 将 PDU 打包为完整 ADU（加地址 + CRC/MBAP） */
-size_t egw_modbus_wrap_pdu(uint8_t *buf, egw_modbus_transport_t transport,
-                            uint8_t unit_id,
-                            const uint8_t *pdu, size_t pdu_len,
-                            uint16_t tid);
+/* ── 输运层统一打包/解包 ──────────────────────────── */
 
-/** @brief 从接收帧中解封装出 PDU + unit_id */
-egw_err_t egw_modbus_unwrap_frame(const uint8_t *frame, size_t len,
-                                   egw_modbus_transport_t transport,
-                                   uint8_t *unit_id_out,
-                                   uint8_t *pdu_out, size_t *pdu_len_out);
+/** @brief 编码完整 ADU
+ *  @return 完整 ADU 指针（成功）或 NULL。
+ *          params->buf 非 NULL 时返回该指针，否则返回 malloc 的指针。调用方 free。 */
+uint8_t* egw_modbus_encode(egw_modbus_transport_t transport,
+                            const egw_modbus_encode_params_t *params,
+                            size_t *out_len);
 
-/* ── 输运层打包/解包适配器 ────────────────────────── */
-
-typedef size_t (*egw_modbus_wrap_fn)(uint8_t *buf, uint8_t unit_id,
-                                      const uint8_t *pdu, size_t pdu_len);
-
-typedef egw_err_t (*egw_modbus_unwrap_fn)(const uint8_t *frame, size_t len,
-                                           uint8_t *unit_id_out,
-                                           uint8_t *pdu_out,
-                                           size_t *pdu_len_out);
-
-size_t egw_modbus_wrap_rtu(uint8_t *buf, uint8_t unit_id,
-                            const uint8_t *pdu, size_t pdu_len);
-size_t egw_modbus_wrap_tcp(uint8_t *buf, uint8_t unit_id,
-                            const uint8_t *pdu, size_t pdu_len);
-egw_err_t egw_modbus_unwrap_rtu(const uint8_t *frame, size_t len,
-                                 uint8_t *unit_id_out,
-                                 uint8_t *pdu_out, size_t *pdu_len_out);
-egw_err_t egw_modbus_unwrap_tcp(const uint8_t *frame, size_t len,
-                                 uint8_t *unit_id_out,
-                                 uint8_t *pdu_out, size_t *pdu_len_out);
+/** @brief 解码完整帧，提取 unit_id + PDU */
+egw_err_t egw_modbus_decode(egw_modbus_transport_t transport,
+                             const uint8_t *frame, size_t len,
+                             uint8_t *unit_id_out,
+                             uint8_t *pdu_out, size_t *pdu_len_out);
 
 #endif /* EGW_MODBUS_CORE_H */

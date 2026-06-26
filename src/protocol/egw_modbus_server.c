@@ -52,35 +52,36 @@ static egw_proto_result_t parse_and_check(const uint8_t *buf, size_t len,
 /* ── Server（从站）内部结构 ──────────────────────────── */
 
 struct egw_modbus_server {
-    egw_modbus_wrap_fn         wrap;
-    egw_modbus_unwrap_fn      unwrap;
+    egw_modbus_transport_t    transport;
 
-    uint8_t                 *buf;           /* 环形缓冲区（堆分配） */
-    size_t                  cap;            /* 容量 */
-    size_t                  rd;             /* 已消费字节数（帧定界后推进） */
-    size_t                  wr;             /* 已累积字节数 */
+    uint8_t                 *buf;       /* 接收环形缓冲区 */
+    size_t                  buf_cap;
+    size_t                  rd;
+    size_t                  wr;
 
-    egw_modbus_srv_read_cb  read_cb;        /* 全部 unit 共用同一套回调 */
+    uint8_t                 *resp_buf;  /* 响应缓冲区 */
+    size_t                  resp_cap;
+    size_t                  resp_len;   /* 响应总长（>0 即有待发送） */
+
+    egw_modbus_srv_read_cb  read_cb;
     egw_modbus_srv_write_cb write_cb;
     void                   *cb_arg;
 
-    uint8_t                 unit_mask[32];  /* bit[i]=1 → unit_id=i 已注册 */
+    uint8_t                 unit_mask[32];
 
-    bool                    sending;        /* true=响应待发送，禁止处理新帧 */
-    uint8_t                 resp_buf[EGW_MODBUS_MAX_FRAME]; /* 已组装好的响应帧 */
-    size_t                  resp_len;       /* 响应帧实际字节数 */
+    bool                    sending;
 };
 
 /* ── 位图辅助 ────────────────────────────────────────── */
 
-static inline bool unit_is_active(const egw_modbus_server_t *s, uint8_t id)
+static inline bool unit_is_active(const egw_modbus_server_t *server, uint8_t id)
 {
-    return (s->unit_mask[id / 8] >> (id % 8)) & 1u;
+    return (server->unit_mask[id / 8] >> (id % 8)) & 1u;
 }
 
-static inline void unit_set_active(egw_modbus_server_t *s, uint8_t id)
+static inline void unit_set_active(egw_modbus_server_t *server, uint8_t id)
 {
-    s->unit_mask[id / 8] |= (uint8_t)(1u << (id % 8));
+    server->unit_mask[id / 8] |= (uint8_t)(1u << (id % 8));
 }
 
 /* ── Hex 日志 ────────────────────────────────────────── */
@@ -104,26 +105,35 @@ static void log_hex(const char *tag, const uint8_t *buf, size_t len)
 
 /* ── 发异常响应（用帧里的原始 unit_id） ──────────────── */
 
-static void send_exception(egw_modbus_server_t *s, uint8_t unit_id,
+static void send_exception(egw_modbus_server_t *server, uint8_t unit_id,
                             uint8_t fc, uint8_t exc)
 {
-    uint8_t pdu[EGW_MODBUS_MAX_PDU];
-    size_t plen = egw_modbus_build_exception_pdu(pdu, fc, exc);
-    s->resp_len = s->wrap(s->resp_buf, unit_id, pdu, plen);
-    s->sending = true;
-    log_hex("send", s->resp_buf, s->resp_len);
+    egw_modbus_encode_params_t enc;
+    memset(&enc, 0, sizeof(enc));
+    enc.type     = EGW_ENCODE_EXCEPTION;
+    enc.unit_id  = unit_id;
+    enc.funccode = fc;
+    enc.exc_code = exc;
+    enc.buf      = server->resp_buf;
+    enc.cap      = server->resp_cap;
+
+    uint8_t *out = egw_modbus_encode(server->transport, &enc, &server->resp_len);
+    if (!out || server->resp_len == 0) { return; }
+
+    server->sending = true;
+    log_hex("send", server->resp_buf, server->resp_len);
 }
 
 /* ── 读请求处理（构建读响应 PDU，返回 PDU 长度） ──────── */
 
-static size_t handle_read_request(egw_modbus_server_t *s,
+static size_t handle_read_request(egw_modbus_server_t *server,
                                    uint8_t fc,
                                    uint16_t addr, uint16_t count,
                                    uint8_t unit_id,
                                    uint8_t *resp_pdu)
 {
     uint16_t regs[256];
-    if (s->read_cb(addr, count, regs, unit_id, s->cb_arg) != EGW_OK) {
+    if (server->read_cb(addr, count, regs, unit_id, server->cb_arg) != EGW_OK) {
         return 0;
     }
 
@@ -146,7 +156,7 @@ static size_t handle_read_request(egw_modbus_server_t *s,
 
 /* ── 写请求处理（返回 true=成功） ─────────────────────── */
 
-static bool handle_write_request(egw_modbus_server_t *s,
+static bool handle_write_request(egw_modbus_server_t *server,
                                   uint8_t fc,
                                   uint16_t addr, uint16_t count,
                                   const uint8_t *req_data,
@@ -178,26 +188,26 @@ static bool handle_write_request(egw_modbus_server_t *s,
         }
     }
 
-    return !s->write_cb || s->write_cb(addr, nregs, wregs, unit_id, s->cb_arg) == EGW_OK;
+    return !server->write_cb || server->write_cb(addr, nregs, wregs, unit_id, server->cb_arg) == EGW_OK;
 }
 
 /* ── 广播写 ──────────────────────────────────────────── */
 
-static void handle_broadcast_write(egw_modbus_server_t *s,
+static void handle_broadcast_write(egw_modbus_server_t *server,
                                     uint8_t fc,
                                     uint16_t addr, uint16_t count,
                                     const uint8_t *req_data)
 {
     for (uint16_t id = 1; id <= 247; id++) {
-        if (!unit_is_active(s, (uint8_t)id)) { continue; }
-        if (!s->write_cb) { continue; }
-        handle_write_request(s, fc, addr, count, req_data, (uint8_t)id);
+        if (!unit_is_active(server, (uint8_t)id)) { continue; }
+        if (!server->write_cb) { continue; }
+        handle_write_request(server, fc, addr, count, req_data, (uint8_t)id);
     }
 }
 
 /* ── 前置声明 ───────────────────────────────────────── */
 
-static void server_handle_frame(egw_modbus_server_t *s,
+static void server_handle_frame(egw_modbus_server_t *server,
                                  const uint8_t *frame, size_t frame_len);
 
 /* ── Server（从站）生命周期 ─────────────────────────── */
@@ -206,150 +216,207 @@ egw_modbus_server_t *egw_modbus_server_create(
     const egw_modbus_server_params_t *params)
 {
     if (!params) { return NULL; }
-    egw_modbus_server_t *s = calloc(1, sizeof(*s));
-    if (!s) { return NULL; }
-    s->buf = malloc(EGW_MODBUS_MAX_FRAME);
-    if (!s->buf) { free(s); return NULL; }
-    s->cap = EGW_MODBUS_MAX_FRAME;
+    egw_modbus_server_t *server = calloc(1, sizeof(*server));
+    if (!server) { return NULL; }
 
-    switch (params->transport) {
-    case EGW_MODBUS_RTU:
-        s->wrap   = egw_modbus_wrap_rtu;
-        s->unwrap = egw_modbus_unwrap_rtu;
-        break;
-    case EGW_MODBUS_TCP:
-        s->wrap   = egw_modbus_wrap_tcp;
-        s->unwrap = egw_modbus_unwrap_tcp;
-        break;
+    size_t buf_cap = params->buf_cap ? params->buf_cap : EGW_MODBUS_MAX_FRAME;
+    size_t resp_cap = params->resp_cap ? params->resp_cap : EGW_MODBUS_MAX_FRAME;
+
+    server->buf = malloc(buf_cap);
+    if (!server->buf) { free(server); return NULL; }
+    server->resp_buf = malloc(resp_cap);
+    if (!server->resp_buf) { free(server->buf); free(server); return NULL; }
+
+    server->buf_cap = buf_cap;
+    server->resp_cap = resp_cap;
+
+    server->transport = params->transport;
+
+    server->read_cb  = params->read_cb;
+    server->write_cb = params->write_cb;
+    server->cb_arg   = params->cb_arg;
+
+    for (int i = 0; i < 4 && params->unit_ids[i] != 0; i++) {
+        unit_set_active(server, params->unit_ids[i]);
     }
-
-    s->read_cb  = params->read_cb;
-    s->write_cb = params->write_cb;
-    s->cb_arg   = params->cb_arg;
-
-    if (params->unit_id >= 1 && params->unit_id <= 247) {
-        unit_set_active(s, params->unit_id);
-    }
-    return s;
+    return server;
 }
 
-egw_err_t egw_modbus_server_add_unit(egw_modbus_server_t *s,
+egw_err_t egw_modbus_server_add_unit(egw_modbus_server_t *server,
                                       uint8_t unit_id)
 {
-    if (!s) { return EGW_RET_CODE(ERR_INVALID_ARG); }
+    if (!server) { return EGW_RET_CODE(ERR_INVALID_ARG); }
     if (unit_id < 1 || unit_id > 247) { return EGW_RET_CODE(ERR_INVALID_ARG); }
-    if (unit_is_active(s, unit_id)) { return EGW_RET_CODE(ERR_INVALID_ARG); }
-    unit_set_active(s, unit_id);
+    if (unit_is_active(server, unit_id)) { return EGW_RET_CODE(ERR_INVALID_ARG); }
+    unit_set_active(server, unit_id);
     return EGW_OK;
 }
 
-void egw_modbus_server_destroy(egw_modbus_server_t *s)
+void egw_modbus_server_destroy(egw_modbus_server_t *server)
 {
-    if (!s) { return; }
-    free(s->buf);
-    free(s);
+    if (!server) { return; }
+    free(server->buf);
+    free(server->resp_buf);
+    free(server);
+}
+
+/* ── 环形缓冲区辅助 ────────────────────────────────── */
+
+/** @brief 已写入但未处理字节数 */
+static size_t buf_used(const egw_modbus_server_t *s)
+{
+    if (s->wr >= s->rd) { return s->wr - s->rd; }
+    return s->buf_cap - s->rd + s->wr;
+}
+
+/** @brief 可写入字节数（留一个空位区分满/空） */
+static size_t buf_free(const egw_modbus_server_t *s)
+{
+    return s->buf_cap - buf_used(s) - 1;
+}
+
+/** @brief 将环形缓冲区 [rd, rd+len) 拷贝到连续 dst，处理回绕 */
+static void ring_copy(uint8_t *dst, const uint8_t *buf, size_t cap,
+                      size_t rd, size_t len)
+{
+    size_t to_end = cap - rd;
+    if (len <= to_end) {
+        memcpy(dst, buf + rd, len);
+    } else {
+        memcpy(dst, buf + rd, to_end);
+        memcpy(dst + to_end, buf, len - to_end);
+    }
 }
 
 /* ── 尝试处理缓冲区中的帧 ────────────────────────────── */
 
-static void server_handle_frame(egw_modbus_server_t *s,
+static void server_handle_frame(egw_modbus_server_t *server,
                                  const uint8_t *frame, size_t frame_len);
 
-static void try_process(egw_modbus_server_t *s)
+static void try_process(egw_modbus_server_t *server)
 {
-    if (s->sending) { return; }
-    size_t remaining = s->wr - s->rd;
-    if (remaining == 0) { return; }
+    /* 有响应待发送中，先不发新帧 */
+    if (server->sending) { return; }
+
+    size_t used = buf_used(server);
+    if (used == 0) { return; }
+
+    /* 把可用数据拷贝到连续 tmp 中（处理回绕），再定界 */
+    size_t copy_sz = (used > EGW_MODBUS_MAX_FRAME) ? EGW_MODBUS_MAX_FRAME : used;
+    uint8_t tmp[EGW_MODBUS_MAX_FRAME];
+    ring_copy(tmp, server->buf, server->buf_cap, server->rd, copy_sz);
 
     size_t frame_len = 0;
-    egw_proto_result_t r = parse_and_check(s->buf + s->rd, remaining,
-                                            &frame_len);
+    egw_proto_result_t r = parse_and_check(tmp, copy_sz, &frame_len);
+
+    /* 还没收齐，等更多字节 */
     if (r == EGW_PROTO_NEED_MORE) { return; }
+
+    /* CRC 失败或格式错误，丢弃全部未处理数据 */
     if (r == EGW_PROTO_FRAME_ERROR) {
-        s->rd = s->wr = 0;
+        server->rd = server->wr = 0;
         return;
     }
 
-    /* 取出完整帧，推进 rd，再处理（允许后续喂入不阻塞） */
-    uint8_t frame[EGW_MODBUS_MAX_FRAME];
-    memcpy(frame, s->buf + s->rd, frame_len);
-    s->rd += frame_len;
-    server_handle_frame(s, frame, frame_len);
+    /* EGW_PROTO_FRAME_READY:
+     * tmp 中已有完整帧，推进 rd（释放环形空间），
+     * 再调 server_handle_frame 处理。
+     * 先拷贝再推进 rd 的原因是：回调可能触发 feed 再入，
+     * 提前推进 rd 保证后续字节不会覆盖当前帧 */
+    server->rd = (server->rd + frame_len) % server->buf_cap;
+    server_handle_frame(server, tmp, frame_len);
 }
 
 /* ── 数据摄入 ────────────────────────────────────────── */
 
-void egw_modbus_server_feed(egw_modbus_server_t *s,
+void egw_modbus_server_feed(egw_modbus_server_t *server,
                               const uint8_t *data, size_t len)
 {
-    if (!s || !data || len == 0) { return; }
-    size_t avail = s->cap - s->wr;
-    if (len > avail) { /* 环形溢出，丢弃所有未处理字节 */
-        s->rd = s->wr = 0;
+    if (!server || !data || len == 0) { return; }
+
+    size_t free_sz = buf_free(server);
+    if (len > free_sz) {
+        server->rd = server->wr = 0;
         return;
     }
-    memcpy(s->buf + s->wr, data, len);
-    s->wr += len;
-    try_process(s);
+
+    size_t to_end = server->buf_cap - server->wr;
+    if (len <= to_end) {
+        memcpy(server->buf + server->wr, data, len);
+    } else {
+        memcpy(server->buf + server->wr, data, to_end);
+        memcpy(server->buf, data + to_end, len - to_end);
+    }
+    server->wr = (server->wr + len) % server->buf_cap;
+    try_process(server);
 }
 
-uint8_t *egw_modbus_server_reserve(egw_modbus_server_t *s, size_t *avail)
+uint8_t *egw_modbus_server_reserve(egw_modbus_server_t *server, size_t *avail)
 {
-    if (!s || s->sending || !avail) {
+    if (!server || server->sending || !avail) {
         if (avail) { *avail = 0; }
         return NULL;
     }
-    *avail = s->cap - s->wr;
-    return s->buf + s->wr;
+
+    size_t free_sz = buf_free(server);
+    if (free_sz == 0) { *avail = 0; return NULL; }
+
+    size_t contig;
+    if (server->wr < server->rd) {
+        contig = server->rd - server->wr - 1;
+    } else {
+        contig = server->buf_cap - server->wr;
+    }
+
+    *avail = (contig < free_sz) ? contig : free_sz;
+    return server->buf + server->wr;
 }
 
-void egw_modbus_server_commit(egw_modbus_server_t *s, size_t n)
+void egw_modbus_server_commit(egw_modbus_server_t *server, size_t n)
 {
-    if (!s || n == 0 || s->sending) { return; }
-    if (s->wr + n > s->cap) { s->rd = s->wr = 0; return; }
-    s->wr += n;
-    try_process(s);
+    if (!server || n == 0 || server->sending) { return; }
+
+    size_t contig;
+    if (server->wr < server->rd) {
+        contig = server->rd - server->wr - 1;
+    } else {
+        contig = server->buf_cap - server->wr;
+    }
+    if (n > contig) { return; }
+
+    server->wr = (server->wr + n) % server->buf_cap;
+    try_process(server);
 }
 
-bool egw_modbus_server_response_ready(const egw_modbus_server_t *s)
-{
-    return s ? s->resp_len > 0 : false;
-}
-
-const uint8_t *egw_modbus_server_get_response(egw_modbus_server_t *s,
+const uint8_t *egw_modbus_server_get_response(egw_modbus_server_t *server,
                                                size_t *len)
 {
-    if (!s || !len) { return NULL; }
-    *len = s->resp_len;
-    return s->resp_buf;
+    if (!server || !len) { return NULL; }
+    if (server->resp_len == 0) { *len = 0; return NULL; }
+    *len = server->resp_len;
+    return server->resp_buf;
 }
 
-void egw_modbus_server_response_sent(egw_modbus_server_t *s)
+void egw_modbus_server_response_sent(egw_modbus_server_t *server)
 {
-    if (!s) { return; }
-    s->resp_len = 0;
-    s->sending = false;
-    /* 保留未处理字节，紧致到头部 */
-    size_t remaining = s->wr - s->rd;
-    if (remaining > 0) {
-        memmove(s->buf, s->buf + s->rd, remaining);
-    }
-    s->wr = remaining;
-    s->rd = 0;
-    try_process(s);
+    if (!server) { return; }
+    server->resp_len = 0;
+    server->sending = false;
+    try_process(server);
 }
 
 /* ── Server（从站）：帧已就绪后的处理 + 响应生成 ─────── */
 
-static void server_handle_frame(egw_modbus_server_t *s,
+static void server_handle_frame(egw_modbus_server_t *server,
                                  const uint8_t *frame, size_t frame_len)
 {
     uint8_t req_pdu[EGW_MODBUS_MAX_PDU];
     size_t  req_pdu_len = 0;
     uint8_t req_unit_id = 0;
 
-    if (s->unwrap(frame, frame_len, &req_unit_id, req_pdu,
-                                  &req_pdu_len) != EGW_OK) {
+    if (egw_modbus_decode(server->transport, frame, frame_len,
+                            &req_unit_id, req_pdu,
+                            &req_pdu_len) != EGW_OK) {
         return;
     }
 
@@ -363,42 +430,42 @@ static void server_handle_frame(egw_modbus_server_t *s,
     if (egw_modbus_parse_request(req_pdu, req_pdu_len,
                                   &fc, &addr, &count,
                                   &req_data, &req_data_len) != EGW_OK) {
-        send_exception(s, req_unit_id, fc, EGW_MODBUS_EXC_ILLEGAL_DATA_ADDR);
+        send_exception(server, req_unit_id, fc, EGW_MODBUS_EXC_ILLEGAL_DATA_ADDR);
         return;
     }
 
     if (req_unit_id == 0) {
         if (fc == 0x05 || fc == 0x06 || fc == 0x0F || fc == 0x10) {
-            handle_broadcast_write(s, fc, addr, count,
+            handle_broadcast_write(server, fc, addr, count,
                                     req_data);
         }
         return;
     }
 
-    if (!unit_is_active(s, req_unit_id)) { return; }
+    if (!unit_is_active(server, req_unit_id)) { return; }
 
     uint8_t resp_pdu[EGW_MODBUS_MAX_PDU];
     size_t  resp_pdu_len = 0;
 
     switch (fc) {
     case 0x01: case 0x02: case 0x03: case 0x04:
-        if (!s->read_cb) {
-            send_exception(s, req_unit_id, fc,
+        if (!server->read_cb) {
+            send_exception(server, req_unit_id, fc,
                             EGW_MODBUS_EXC_SLAVE_DEVICE_FAILURE);
             return;
         }
-        resp_pdu_len = handle_read_request(s, fc, addr, count,
+        resp_pdu_len = handle_read_request(server, fc, addr, count,
                                             req_unit_id, resp_pdu);
         if (resp_pdu_len == 0) {
-            send_exception(s, req_unit_id, fc,
+            send_exception(server, req_unit_id, fc,
                             EGW_MODBUS_EXC_SLAVE_DEVICE_FAILURE);
             return;
         }
         break;
     case 0x05: case 0x06: case 0x0F: case 0x10:
-        if (!handle_write_request(s, fc, addr, count,
+        if (!handle_write_request(server, fc, addr, count,
                                    req_data, req_unit_id)) {
-            send_exception(s, req_unit_id, fc,
+            send_exception(server, req_unit_id, fc,
                             EGW_MODBUS_EXC_SLAVE_DEVICE_FAILURE);
             return;
         }
@@ -407,13 +474,23 @@ static void server_handle_frame(egw_modbus_server_t *s,
         resp_pdu_len = req_pdu_len;
         break;
     default:
-        send_exception(s, req_unit_id, fc,
+        send_exception(server, req_unit_id, fc,
                         EGW_MODBUS_EXC_ILLEGAL_FUNCTION);
         return;
     }
 
-    s->resp_len = s->wrap(s->resp_buf, req_unit_id, resp_pdu, resp_pdu_len);
-    if (s->resp_len == 0) { return; }
-    s->sending = true;
-    log_hex("send", s->resp_buf, s->resp_len);
+    egw_modbus_encode_params_t enc;
+    memset(&enc, 0, sizeof(enc));
+    enc.type    = EGW_ENCODE_PDU;
+    enc.unit_id = req_unit_id;
+    enc.pdu     = resp_pdu;
+    enc.pdu_len = resp_pdu_len;
+    enc.buf     = server->resp_buf;
+    enc.cap     = server->resp_cap;
+
+    uint8_t *out = egw_modbus_encode(server->transport, &enc, &server->resp_len);
+    if (!out || server->resp_len == 0) { return; }
+
+    server->sending = true;
+    log_hex("send", server->resp_buf, server->resp_len);
 }

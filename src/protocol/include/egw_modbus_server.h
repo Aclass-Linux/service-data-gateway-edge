@@ -34,16 +34,18 @@ typedef struct egw_modbus_server egw_modbus_server_t;
 
 /** @brief 从站创建参数 */
 typedef struct {
-    egw_modbus_transport_t  transport;  /**< RTU 或 TCP */
-    uint8_t                 unit_id;    /**< 首个从站地址（0=跳过，之后 add_unit） */
-    egw_modbus_srv_read_cb  read_cb;    /**< 读寄存器回调 */
-    egw_modbus_srv_write_cb write_cb;   /**< 写寄存器回调（可为 NULL） */
-    void                   *cb_arg;     /**< 透传给回调 */
+    egw_modbus_transport_t  transport;   /**< RTU 或 TCP */
+    uint8_t                 unit_ids[4]; /**< 从站地址列表（0 结尾，之后 add_unit） */
+    size_t                  buf_cap;     /**< 接收缓冲区容量（0=默认 EGW_MODBUS_MAX_FRAME） */
+    size_t                  resp_cap;    /**< 响应缓冲区容量（0=默认 EGW_MODBUS_MAX_FRAME） */
+    egw_modbus_srv_read_cb  read_cb;     /**< 读寄存器回调 */
+    egw_modbus_srv_write_cb write_cb;    /**< 写寄存器回调（可为 NULL） */
+    void                   *cb_arg;      /**< 透传给回调 */
 } egw_modbus_server_params_t;
 
 /** @brief 创建从站实例
  *
- * 一个物理端口对应一个实例。内部映射 transport → wrap/unwrap 函数指针，
+ * 一个物理端口对应一个实例。内部映射 transport → encode/unwrap 函数指针，
  * 可通过 params.unit_id 直接注册第一个从站地址。
  *
  *  @param params 创建参数，不可为 NULL
@@ -60,17 +62,17 @@ egw_modbus_server_t *egw_modbus_server_create(const egw_modbus_server_params_t *
  *  @param unit_id 从站地址（1-247，0=广播）
  *  @return EGW_OK 或错误码
  */
-egw_err_t egw_modbus_server_add_unit(egw_modbus_server_t *s,
+egw_err_t egw_modbus_server_add_unit(egw_modbus_server_t *server,
                                       uint8_t unit_id);
 
 /** @brief 销毁从站实例 */
-void egw_modbus_server_destroy(egw_modbus_server_t *s);
+void egw_modbus_server_destroy(egw_modbus_server_t *server);
 
 /** @brief 喂入接收字节（memcpy 路径）
  *
  * 字节写入内部环形缓冲区，尝试帧定界 + CRC 校验。
  * 帧就绪后自动解包 → 调 read/write 回调 → 组响应。 */
-void egw_modbus_server_feed(egw_modbus_server_t *s,
+void egw_modbus_server_feed(egw_modbus_server_t *server,
                               const uint8_t *data, size_t len);
 
 /** @brief 获取可写接收缓冲区（零拷贝路径）
@@ -83,16 +85,13 @@ void egw_modbus_server_feed(egw_modbus_server_t *s,
  *  @param avail 输出可写字节数
  *  @return 可写指针，失败返回 NULL
  */
-uint8_t *egw_modbus_server_reserve(egw_modbus_server_t *s, size_t *avail);
+uint8_t *egw_modbus_server_reserve(egw_modbus_server_t *server, size_t *avail);
 
 /** @brief 提交已写入的接收字节
  *
  * 触发帧定界 + 处理 + 生成响应。
  * 帧就绪后 sending = true，禁止处理下一帧。 */
-void egw_modbus_server_commit(egw_modbus_server_t *s, size_t n);
-
-/** @brief 查询是否有响应待发送 */
-bool egw_modbus_server_response_ready(const egw_modbus_server_t *s);
+void egw_modbus_server_commit(egw_modbus_server_t *server, size_t nbytes);
 
 /** @brief 获取待发送的响应帧
  *
@@ -100,13 +99,13 @@ bool egw_modbus_server_response_ready(const egw_modbus_server_t *s);
  * @param len 输出帧长度
  * @return 帧数据指针（response_sent 前有效）。不改变内部状态。
  */
-const uint8_t *egw_modbus_server_get_response(egw_modbus_server_t *s,
+const uint8_t *egw_modbus_server_get_response(egw_modbus_server_t *server,
                                                size_t *len);
 
 /** @brief 标记响应已发送
  *
- * 清空响应缓冲区 + 解除 sending 锁定 + 紧致未处理的剩余字节。
+ * 清空响应缓冲区 + 解除 sending 锁定。
  * 之后立即尝试解析下一帧（accumulate during sending 的字节不会丢）。 */
-void egw_modbus_server_response_sent(egw_modbus_server_t *s);
+void egw_modbus_server_response_sent(egw_modbus_server_t *server);
 
 #endif /* EGW_MODBUS_SERVER_H */
