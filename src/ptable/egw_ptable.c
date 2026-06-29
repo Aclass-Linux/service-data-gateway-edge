@@ -363,8 +363,17 @@ void egw_manifest_free(egw_manifest_t *mh)
  * @param pt     DB 句柄
  * @param table  表名
  * @param fields 字段数组（buf.data + buf.len 编码）
- * @return       egw_buf_t，.data == NULL 表示失败
+ * @return       egw_ptable_rs_t *，NULL 表示失败
  */
+
+/* ── 行集内部结构 ────────────────────────────────────── */
+
+struct egw_ptable_rs {
+    size_t             row_size;
+    size_t             count;
+    egw_ptable_cmp_fn  lkp_cmp;
+    uint8_t            data[];
+};
 
 static void read_column(void *buf, size_t offset,
                          egw_ctype_t ctype,
@@ -396,6 +405,7 @@ static int resolve_cols(sqlite3_stmt *stmt,
 
     for (int f = 0; f < nfield; f++) {
         col_idx[f] = -1;
+        if (!flds[f].name) { continue; }
         for (int c = 0; c < ncol; c++) {
             if (strcmp(flds[f].name, sqlite3_column_name(stmt, c)) == 0) {
                 col_idx[f] = c;
@@ -425,25 +435,54 @@ static int resolve_cols(sqlite3_stmt *stmt,
     return missing;
 }
 
-egw_buf_t egw_ptable_register(egw_ptable_t *pt,
-                                const char *table,
-                                egw_buf_t fields,
-                                size_t row_size)
+/** @brief 校验 order_by 的每个列名都在字段表中 */
+static int validate_order_by(const char *order_by,
+                              const egw_field_t *fields, int nfield)
 {
-    egw_buf_t result = { NULL, 0 };
+    if (!order_by || !order_by[0]) { return 1; }
 
-    if (!pt || !table || !fields.data || row_size == 0) { return result; }
+    char buf[128];
+    snprintf(buf, sizeof(buf), "%s", order_by);
+    char *rest = buf;
+    char *token;
 
-    const egw_field_t *flds = (const egw_field_t *)fields.data;
-    int nfield = fields.len / sizeof(egw_field_t);
+    while ((token = strtok_r(rest, ", ", &rest)) != NULL) {
+        int found = 0;
+        for (int f = 0; f < nfield; f++) {
+            if (!fields[f].name) { continue; }
+            if (strcmp(fields[f].name, token) == 0) { found = 1; break; }
+        }
+        if (!found) { return 0; }
+    }
+    return 1;
+}
 
-    /* 先数行数，一次分配 */
+egw_ptable_rs_t *egw_ptable_register(egw_ptable_t *pt,
+                                       const char *table,
+                                       const egw_schema_t *schema)
+{
+    if (!pt || !table || !schema || !schema->fields
+        || schema->nfields == 0 || schema->row_size == 0) {
+        return NULL;
+    }
+
+    const egw_field_t *fields = schema->fields;
+    int nfield = (int)schema->nfields;
+    size_t row_size = schema->row_size;
+
+    if (!validate_order_by(schema->order_by, fields, nfield)) {
+        EGW_LOGE("register '%s': invalid order_by '%s'",
+                 table, schema->order_by);
+        return NULL;
+    }
+
+    /* 先数行数 */
     char sql[128];
     snprintf(sql, sizeof(sql), SQL_COUNT_ROWS, table);
 
     sqlite3_stmt *stmt = NULL;
     if (sqlite3_prepare_v2(pt->db, sql, -1, &stmt, NULL) != SQLITE_OK) {
-        return result;
+        return NULL;
     }
 
     uint32_t count = 0;
@@ -452,33 +491,41 @@ egw_buf_t egw_ptable_register(egw_ptable_t *pt,
     }
     sqlite3_finalize(stmt);
 
-    void *buf = calloc(count, row_size);
-    if (!buf) { return result; }
+    egw_ptable_rs_t *result = calloc(1, sizeof(egw_ptable_rs_t) + count * row_size);
+    if (!result) { return NULL; }
+    result->row_size = row_size;
+    result->count    = count;
+    result->lkp_cmp  = schema->lkp;
 
     /* 再查数据 */
-    snprintf(sql, sizeof(sql), SQL_SELECT_ALL, table);
+    if (schema->order_by && schema->order_by[0]) {
+        snprintf(sql, sizeof(sql), "SELECT * FROM %s ORDER BY %s",
+                 table, schema->order_by);
+    } else {
+        snprintf(sql, sizeof(sql), SQL_SELECT_ALL, table);
+    }
     if (sqlite3_prepare_v2(pt->db, sql, -1, &stmt, NULL) != SQLITE_OK) {
         EGW_LOGE("register '%s' prepare failed", table);
-        free(buf);
-        return result;
+        free(result);
+        return NULL;
     }
 
     /* 列名解析 + 逐行填充 */
     int col_idx[nfield];
-    uint8_t *row = (uint8_t *)buf;
+    uint8_t *row = result->data;
 
     if (sqlite3_step(stmt) == SQLITE_ROW) {
-        if (resolve_cols(stmt, flds, nfield, table, col_idx) > 0) {
-            free(buf);
+        if (resolve_cols(stmt, fields, nfield, table, col_idx) > 0) {
+            free(result);
             sqlite3_finalize(stmt);
-            return result;
+            return NULL;
         }
 
         do {
             for (int f = 0; f < nfield; f++) {
                 if (col_idx[f] < 0) { continue; }
-                read_column(row, flds[f].offset,
-                            flds[f].ctype, stmt, col_idx[f]);
+                read_column(row, fields[f].offset,
+                            fields[f].ctype, stmt, col_idx[f]);
             }
             row += row_size;
         } while (sqlite3_step(stmt) == SQLITE_ROW);
@@ -486,24 +533,30 @@ egw_buf_t egw_ptable_register(egw_ptable_t *pt,
 
     sqlite3_finalize(stmt);
 
-    /* 返回结果 */
-    result.data = buf;
-    result.len  = count * row_size;
     return result;
 }
 
-/* ── 路由表字段表（协议无关） ────────────────────────── */
-
-static const egw_field_t s_route_fields[] = {
-    EGW_FIELD(egw_route_entry_t, "device_id", device_id, EGW_CTYPE_U16),
-    EGW_FIELD(egw_route_entry_t, "sig_id",    sig_id,    EGW_CTYPE_U32),
-    EGW_FIELD(egw_route_entry_t, "ctype",     ctype,     EGW_CTYPE_BOOL),
-};
-
-const egw_field_t *egw_ptable_route_fields(size_t *count)
+size_t egw_ptable_rs_count(const egw_ptable_rs_t *rs)
 {
-    if (count) {
-        *count = sizeof(s_route_fields) / sizeof(s_route_fields[0]);
-    }
-    return s_route_fields;
+    return rs ? rs->count : 0;
 }
+
+void *egw_ptable_rs_row(const egw_ptable_rs_t *rs, size_t idx)
+{
+    if (!rs || idx >= rs->count) { return NULL; }
+    return (uint8_t *)rs->data + idx * rs->row_size;
+}
+
+void *egw_ptable_rs_lookup(const egw_ptable_rs_t *rs, const void *key)
+{
+    if (!rs || !key || !rs->lkp_cmp) { return NULL; }
+    return bsearch(key, (void *)rs->data, rs->count, rs->row_size, rs->lkp_cmp);
+}
+
+void egw_ptable_rs_free(egw_ptable_rs_t *rs)
+{
+    free(rs);
+}
+
+
+

@@ -88,30 +88,55 @@ void            egw_manifest_free(egw_manifest_t *mh);
 
 /* ── 行数据注册 ──────────────────────────────────────── */
 
-/** @brief 加载业务表全部行数据
+/** @brief 行比较函数签名（qsort / bsearch 兼容）
  *
- * SELECT * FROM table，按 fields 描述填充行结构体，
- * 返回连续内存块。失败时 .data == NULL。
- * 调用方负责 free 返回的 .data。
+ * 比较 row_a（数据集内一行）与 key_b（调用方构造的查找键），
+ * 返回 <0 / 0 / >0。
+ */
+typedef int (*egw_ptable_cmp_fn)(const void *row_a, const void *key_b);
+
+typedef struct {
+    const egw_field_t *fields;
+    size_t             nfields;
+    size_t             row_size;
+    const char        *order_by;   /* "device_id, reg_addr" → SQL ORDER BY */
+    egw_ptable_cmp_fn  lkp;        /* key vs row，bsearch 用 */
+} egw_schema_t;
+
+/** @brief 行集句柄（不透明）
+ *
+ * 通过 egw_ptable_register 加载业务表全部行后返回。
+ * 若 schema.cmp 非空则在加载后自动排序。
+ * 使用 _count / _row / _lookup 访问，用完 _free 释放。
+ */
+typedef struct egw_ptable_rs egw_ptable_rs_t;
+
+/** @brief 加载业务表全部行数据
  *
  * @param pt      点表句柄
  * @param table   表名
- * @param fields  {.data=egw_field_t[], .len=nfield*sizeof(egw_field_t)}
- * @param row_size sizeof(row_struct)
- * @return        egw_buf_t {.data=行数组, .len=总字节数}
+ * @param schema  字段描述
+ * @return        行集句柄，NULL 表示失败
  */
-egw_buf_t egw_ptable_register(egw_ptable_t *pt,
-                                const char *table,
-                                egw_buf_t fields,
-                                size_t row_size);
+egw_ptable_rs_t *egw_ptable_register(egw_ptable_t *pt,
+                                      const char *table,
+                                      const egw_schema_t *schema);
 
-/* ── 路由表字段访问器 ────────────────────────────────── */
+/** @brief 行数 */
+size_t egw_ptable_rs_count(const egw_ptable_rs_t *rs);
 
-/**
- * @brief 路由表字段表（协议无关，供 ptable 注册时复用）
- * @param count 输出字段数
- * @return 字段数组指针（指向静态常量数据，无需释放）
+/** @brief 取第 idx 行指针（调用方 cast 到对应结构体，可写） */
+void *egw_ptable_rs_row(const egw_ptable_rs_t *rs, size_t idx);
+
+/** @brief 按业务键二分查找
+ *
+ * @param rs   行集
+ * @param key  调用方构造的查找键结构体
+ * @return     匹配行指针（可写），NULL 表示未找到
  */
-const egw_field_t *egw_ptable_route_fields(size_t *count);
+void *egw_ptable_rs_lookup(const egw_ptable_rs_t *rs, const void *key);
+
+/** @brief 释放行集 */
+void egw_ptable_rs_free(egw_ptable_rs_t *rs);
 
 #endif /* EGW_PTABLE_H */

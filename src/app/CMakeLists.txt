@@ -1,6 +1,6 @@
 set(APP_TARGET ${ACLASS_PROJECT_NAME})
 
-add_executable(${APP_TARGET} main.c gateway_app.c)
+add_executable(${APP_TARGET} main.c egw_app.c egw_modbus_master.c egw_modbus_slave.c egw_route.c)
 
 target_link_libraries(${APP_TARGET} PRIVATE
     egw_core egw_transport egw_protocol egw_ptable
