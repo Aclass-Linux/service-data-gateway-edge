@@ -3,7 +3,9 @@
 #include "egw_modbus_master.h"
 #include "egw_modbus_slave.h"
 #include "egw_route.h"
+#include "egw_persist_thread.h"
 #include <string.h>
+#include <pthread.h>
 
 static void on_protocol_node(egw_ptable_t *pt, egw_node_t *n,
                                egw_ptable_rs_t **out_master,
@@ -43,7 +45,8 @@ static void on_port_node(egw_node_t *n)
 /* ── Modbus RTU 本地回环 ───────────────────────────── */
 
 static void run_modbus_loopback(egw_ptable_rs_t *master_rs,
-                                  egw_ptable_rs_t *slave_rs)
+                                  egw_ptable_rs_t *slave_rs,
+                                  egw_persist_thread_t *persist)
 {
     EGW_LOGI("=== Modbus RTU local loopback (uv_poll) ===");
     EGW_LOGI("  (requires: ./tools/virtual_serial.sh start)");
@@ -56,8 +59,11 @@ static void run_modbus_loopback(egw_ptable_rs_t *master_rs,
         EGW_LOGE("  uv_loop_init failed");
         return;
     }
-    ctx.loop = &loop;
-    ctx.phase = EGW_LB_PHASE_SERVER_RECV;
+    ctx.loop      = &loop;
+    ctx.master_rs = master_rs;
+    ctx.slave_rs  = slave_rs;
+    ctx.persist   = persist;
+    ctx.phase     = EGW_LB_PHASE_SERVER_RECV;
     ctx.seg_pending = false;
 
     if (egw_lb_master_transport_open(&ctx, "/tmp/ttyV0") != EGW_OK
@@ -67,7 +73,7 @@ static void run_modbus_loopback(egw_ptable_rs_t *master_rs,
     }
     EGW_LOGI("  serial: /tmp/ttyV0 (client) + /tmp/ttyV1 (server) opened");
 
-    if (egw_lb_slave_init(&ctx, slave_rs) != EGW_OK) {
+    if (egw_lb_slave_init(&ctx) != EGW_OK) {
         EGW_LOGE("  slave_init failed");
         goto cleanup;
     }
@@ -150,7 +156,16 @@ int egw_app_run(int argc, char *argv[])
     }
 
     if (master_rs && slave_rs) {
-        run_modbus_loopback(master_rs, slave_rs);
+        egw_persist_thread_t *pctx =
+            egw_persist_thread_create(db_path, 5000);
+        pthread_t persist_tid;
+        pthread_create(&persist_tid, NULL, egw_persist_thread_fn, pctx);
+
+        run_modbus_loopback(master_rs, slave_rs, pctx);
+
+        egw_persist_thread_request_stop(pctx);
+        pthread_join(persist_tid, NULL);
+        egw_persist_thread_destroy(pctx);
     }
 
     egw_ptable_rs_free(master_rs);

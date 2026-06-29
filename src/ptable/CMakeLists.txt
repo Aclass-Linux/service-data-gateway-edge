@@ -1,5 +1,6 @@
 add_library(egw_ptable STATIC
     egw_ptable.c
+    egw_persist.c
 )
 
 target_include_directories(egw_ptable PUBLIC

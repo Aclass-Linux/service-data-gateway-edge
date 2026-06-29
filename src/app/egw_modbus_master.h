@@ -53,6 +53,8 @@ typedef enum {
     EGW_LB_PHASE_DONE,
 } egw_lb_phase_t;
 
+typedef struct egw_persist_thread egw_persist_thread_t;
+
 typedef struct {
     uv_loop_t              *loop;
     egw_transport_handle_t *cli_h;
@@ -64,6 +66,9 @@ typedef struct {
     bool                    seg_pending;
     uv_poll_t               cli_poll;
     uv_poll_t               srv_poll;
+    egw_ptable_rs_t        *master_rs;
+    egw_ptable_rs_t        *slave_rs;
+    egw_persist_thread_t   *persist;
 } egw_lb_ctx_t;
 
 /* ── 回环主站 API ────────────────────────────────────── */

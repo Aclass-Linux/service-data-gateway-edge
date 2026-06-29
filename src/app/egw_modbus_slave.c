@@ -1,4 +1,5 @@
 #include "egw_modbus_slave.h"
+#include "egw_persist_thread.h"
 #include <time.h>
 
 /* ── 北向服务字段映射 ────────────────────────────────── */
@@ -50,7 +51,8 @@ egw_ptable_rs_t *egw_modbus_slave_load(egw_ptable_t *pt)
 
 static egw_err_t slave_read_cb(const egw_modbus_srv_read_t *p, void *arg)
 {
-    const egw_ptable_rs_t *rs = arg;
+    egw_lb_ctx_t *ctx = arg;
+    egw_ptable_rs_t *rs = ctx->slave_rs;
     EGW_LOGI("    [server] read_cb: unit=%u addr=%u qty=%u",
              p->unit_id, p->address, p->quantity);
 
@@ -72,13 +74,20 @@ static egw_err_t slave_read_cb(const egw_modbus_srv_read_t *p, void *arg)
     row->value = p->regs_out[0];
     EGW_LOGI("    [server] read_cb: unit=%u addr=%u qty=%u → value=0x%04X",
              p->unit_id, p->address, p->quantity, row->value);
+
+    if (ctx->persist) {
+        egw_persist_thread_enqueue(ctx->persist, "northbound",
+                                    row->device_id, row->reg_addr,
+                                    row->value);
+    }
     return EGW_OK;
 }
 
 /* ── 从站初始化 ─────────────────────────────────────── */
 
-egw_err_t egw_lb_slave_init(egw_lb_ctx_t *ctx, egw_ptable_rs_t *rs)
+egw_err_t egw_lb_slave_init(egw_lb_ctx_t *ctx)
 {
+    egw_ptable_rs_t *rs = ctx->slave_rs;
     uint8_t unit_ids[5] = {0};
     size_t nu = 0;
     size_t nrow = egw_ptable_rs_count(rs);
@@ -96,7 +105,7 @@ egw_err_t egw_lb_slave_init(egw_lb_ctx_t *ctx, egw_ptable_rs_t *rs)
         .transport = EGW_MODBUS_RTU,
         .unit_ids  = { unit_ids[0], unit_ids[1], unit_ids[2], unit_ids[3] },
         .read_cb   = slave_read_cb,
-        .cb_arg    = (void *)rs,
+        .cb_arg    = ctx,
     });
     if (!ctx->server) {
         return EGW_RET_CODE(ERR_NOMEM);

@@ -40,7 +40,7 @@ egw_ptable_rs_t *egw_modbus_slave_load(egw_ptable_t *pt);
 /* ── 回环从站 API ────────────────────────────────────── */
 
 egw_err_t egw_lb_slave_transport_open(egw_lb_ctx_t *ctx, const char *path);
-egw_err_t egw_lb_slave_init(egw_lb_ctx_t *ctx, egw_ptable_rs_t *rs);
+egw_err_t egw_lb_slave_init(egw_lb_ctx_t *ctx);
 void      egw_lb_slave_poll_start(egw_lb_ctx_t *ctx);
 void      egw_lb_slave_on_poll(uv_poll_t *p, int status, int events);
 void      egw_lb_slave_cleanup(egw_lb_ctx_t *ctx);
