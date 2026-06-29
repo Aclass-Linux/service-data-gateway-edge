@@ -154,6 +154,9 @@ void egw_modbus_client_remove(egw_modbus_client_t *client,
             client->slots = slot->next;
         }
     }
+    if (client->current == slot) {
+        client->current = NULL;
+    }
     free(slot->buf);
     free(slot);
 }
@@ -229,7 +232,8 @@ static void client_handle_frame(egw_modbus_client_t *client)
     }
 
     uint16_t regs[128];
-    uint8_t funccode = slot->buf[1];
+    uint8_t funccode_off = (client->transport == EGW_MODBUS_TCP) ? 7 : 1;
+    uint8_t funccode = slot->buf[funccode_off];
     int reg_count = egw_modbus_parse_read_pdu(pdu, pdu_len, funccode,
                                                regs, 128);
     if (reg_count < 0) {

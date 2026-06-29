@@ -172,19 +172,25 @@ src/protocol/
 | 概念 | 实现 |
 |------|------|
 | 输运分派 | `transport` 枚举 + `egw_modbus_encode/decode` 统一函数 |
-| encode 入参 | `egw_modbus_encode_params_t`（type=FROM_PARAMS/PDU/EXCEPTION + unit_id/funccode/addr/count/data + buf/cap） |
+| encode 入参 | `egw_modbus_encode_params_t`（type + tid + unit_id/funccode/addr/count/data + buf/cap） |
 | Server 接收 | 真环形缓冲区（rd/wr 回绕），`sending` 标志串行处理 |
 | Server 响应 | `resp_buf` + `resp_len`，`get_response` 返回完整帧，app 管分包 |
+| Server 回调 | `egw_modbus_srv_read_t`/`egw_modbus_srv_write_t` 结构体入参 |
 | Client slot | 双向环形链表，调用方显式指定 slot 发送 |
-| PDU 构建 | encode 内部 `write_pdu` 直写帧偏移，无中间 buffer |
+| Client tid | `next_tid` 自增（RTU/TCP 均递增），TCP 时写入帧 `buf[0..1]` |
+| Client 统计 | `tx_count` / `rx_count`，丢包数 = tx - rx |
+| PDU 构建 | encode 内部直写帧偏移，无中间 buffer |
+| 参数标记 | `OUT` 宏标记输出参数（`egw_defs.h`，空宏仅作文档） |
+| reserve 约定 | 返回 `size_t`（可用大小），`OUT uint8_t **buf` 输出指针 |
 
 ### 已移除
 
 - `egw_modbus_req_params_t` → `egw_modbus_encode_params_t`
 - 函数指针 `encode_fn`/`decode_fn` → `transport` 枚举
 - `egw_modbus_encode_rtu/tcp`、`egw_modbus_decode_rtu/tcp` 公开函数 → `egw_modbus_encode/decode`
-- 所有 `build_*_pdu` 公开函数（`build_read_pdu`、`build_write_single_*`、`build_multiple_*`、`build_exception`）
+- 所有 `build_*_pdu` 公开函数
 - `egw_modbus_build_and_encode`
 - `egw_modbus_server_response_ready`
 - `egw_modbus_client_add_slot`
+- `unit_set_active` → 内联位操作
 - `egw_proto_*` 通用 protocol 抽象层

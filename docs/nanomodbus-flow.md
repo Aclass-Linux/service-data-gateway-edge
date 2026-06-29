@@ -78,10 +78,10 @@ nmbs_t {
 |------|-----------|------|
 | 实例分配 | app 提供栈/静态内存 | `egw_modbus_server_create(&params)` 内部 calloc |
 | platform 设置 | app 手动赋值 `t->platform = {...}` | `egw_transport_open` 返回 handle，app 持有 |
-| 回调注册 | create 时传 callbacks struct | create 时传 `read_cb, write_cb, arg` |
+| 回调注册 | create 时传 callbacks struct | create 时传 `read_cb, write_cb, arg`（回调入参为 `egw_modbus_srv_read_t`/`_write_t` 结构体） |
 | 输运层分派 | 全局函数内 switch transport | transport 枚举 + `egw_modbus_encode/decode` 统一分发 |
-| 多 unit 支持 | 单 unit_id，多实例 | 单个实例支持 `unit_mask[32]` 位图（1~247） |
-| 环形缓冲区 | `recv_buf` + 内部 offset 追踪 | `buf[rd/wr]` 真环形缓冲区（可回绕） |
+| 多 unit 支持 | 单 unit_id，多实例 | 单个实例支持 `unit_mask[32]` 位图（1~247），`add_unit(unit_ids[4])` 批量注册 |
+| 环形缓冲区 | `recv_buf` + 内部 offset 追踪 | `buf[rd/wr]` 真环形缓冲区（可回绕），无紧致 |
 | 响应发送 | `has_response` + platform.send | `sending` 标志 + app 调 `get_response`/`response_sent` |
 
 ---
@@ -302,17 +302,18 @@ nmbs_poll(t, now_ms) 的后续 tick:
 |-----------|------|
 | app 声明 `nmbs_t t`（栈） | `calloc(sizeof(egw_modbus_server_t))` |
 | `t->platform = {receive, send}` | `egw_transport_handle_t *h`（app 层持有） |
-| `t->callbacks = {read, write}` | `egw_modbus_srv_read_cb` + `write_cb` 参数 |
-| `t->unit_id = 1` | `params.unit_ids = {1, ...}`（链表+位图，支持多 unit） |
+| `t->callbacks = {read, write}` | `egw_modbus_srv_read_t`/`egw_modbus_srv_write_t` 结构体入参 |
+| `t->unit_id = 1` | `params.unit_ids = {1, ...}`（位图，支持多 unit，一次注册 4 个） |
 | 内部分配三个 buf | heap 分配 `buf` + `resp_buf`，容量可配置 |
 | `nmbs_poll()` 内嵌 recv | App 层 `uv_poll_cb → egw_transport_read` |
-| 内部 ring buf + parser | `buf[rd/wr]` 环形缓冲区 + `try_process` 内联定界 |
-| `parse_request` + unwrap | `egw_modbus_decode_pdu` + `egw_modbus_parse_request` |
-| `callbacks.read_registers` 回调 | `egw_modbus_srv_read_cb` 回调 |
+| 内部 ring buf + parser | `buf[rd/wr]` 真环形缓冲区（可回绕）+ `try_process` 内联定界 |
+| `parse_request` + unwrap | `egw_modbus_decode` + `egw_modbus_parse_request` |
+| `callbacks.read_registers` 回调 | `egw_modbus_srv_read_cb` 回调（参数结构体 `egw_modbus_srv_read_t`） |
 | 内部 reg_buf 做字节序转换 | `regs[256]` 栈缓冲区 |
 | `wrap_pdu` 封装响应 | `egw_modbus_encode(transport, &enc, &len)` |
-| `has_response + platform.send` | `egw_modbus_server_get_response` + `egw_transport_write` |
-| Client 侧：`nmbs_make_request` | `egw_modbus_client_register` → `egw_modbus_encode` → slot |
-| | `egw_modbus_client_request(cli, slot, &len)` 显式指定 slot |
+| `has_response + platform.send` | `egw_modbus_server_get_response` + `egw_transport_write` + `response_sent` |
+| Client 侧：`nmbs_make_request` | `egw_modbus_client_register` → `egw_modbus_encode` → slot（双向环形链表） |
+| | `egw_modbus_client_request(cli, slot, &len)` 显式指定 slot，自增 tid |
+| | `egw_modbus_client_remove(cli, slot)` 按句柄删除 |
 
 **核心差异**：nanoMODBUS 把数据读写（回调）和字节序转换都放在同一 tick 里，我们也一样——`server_handle_frame` 里调回调 → 取 regs → 构建 resp_pdu → `egw_modbus_encode()`（transport 枚举分派 RTU/TCP）。
