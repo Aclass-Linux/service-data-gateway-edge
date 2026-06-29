@@ -79,11 +79,6 @@ static inline bool unit_is_active(const egw_modbus_server_t *server, uint8_t id)
     return (server->unit_mask[id / 8] >> (id % 8)) & 1u;
 }
 
-static inline void unit_set_active(egw_modbus_server_t *server, uint8_t id)
-{
-    server->unit_mask[id / 8] |= (uint8_t)(1u << (id % 8));
-}
-
 /* ── Hex 日志 ────────────────────────────────────────── */
 
 static void log_hex(const char *tag, const uint8_t *buf, size_t len)
@@ -106,11 +101,12 @@ static void log_hex(const char *tag, const uint8_t *buf, size_t len)
 /* ── 发异常响应（用帧里的原始 unit_id） ──────────────── */
 
 static void send_exception(egw_modbus_server_t *server, uint8_t unit_id,
-                            uint8_t fc, uint8_t exc)
+                            uint8_t fc, uint8_t exc, uint16_t tid)
 {
     egw_modbus_encode_params_t enc;
     memset(&enc, 0, sizeof(enc));
     enc.type     = EGW_ENCODE_EXCEPTION;
+    enc.tid      = tid;
     enc.unit_id  = unit_id;
     enc.funccode = fc;
     enc.exc_code = exc;
@@ -133,7 +129,13 @@ static size_t handle_read_request(egw_modbus_server_t *server,
                                    uint8_t *resp_pdu)
 {
     uint16_t regs[256];
-    if (server->read_cb(addr, count, regs, unit_id, server->cb_arg) != EGW_OK) {
+    egw_modbus_srv_read_t p = {
+        .address  = addr,
+        .quantity = count,
+        .regs_out = regs,
+        .unit_id  = unit_id,
+    };
+    if (server->read_cb(&p, server->cb_arg) != EGW_OK) {
         return 0;
     }
 
@@ -188,7 +190,14 @@ static bool handle_write_request(egw_modbus_server_t *server,
         }
     }
 
-    return !server->write_cb || server->write_cb(addr, nregs, wregs, unit_id, server->cb_arg) == EGW_OK;
+    if (!server->write_cb) { return true; }
+    egw_modbus_srv_write_t p = {
+        .address = addr,
+        .quantity = nregs,
+        .regs    = wregs,
+        .unit_id = unit_id,
+    };
+    return server->write_cb(&p, server->cb_arg) == EGW_OK;
 }
 
 /* ── 广播写 ──────────────────────────────────────────── */
@@ -200,7 +209,6 @@ static void handle_broadcast_write(egw_modbus_server_t *server,
 {
     for (uint16_t id = 1; id <= 247; id++) {
         if (!unit_is_active(server, (uint8_t)id)) { continue; }
-        if (!server->write_cb) { continue; }
         handle_write_request(server, fc, addr, count, req_data, (uint8_t)id);
     }
 }
@@ -236,19 +244,19 @@ egw_modbus_server_t *egw_modbus_server_create(
     server->write_cb = params->write_cb;
     server->cb_arg   = params->cb_arg;
 
-    for (int i = 0; i < 4 && params->unit_ids[i] != 0; i++) {
-        unit_set_active(server, params->unit_ids[i]);
-    }
+    egw_modbus_server_add_unit(server, params->unit_ids);
     return server;
 }
 
 egw_err_t egw_modbus_server_add_unit(egw_modbus_server_t *server,
-                                      uint8_t unit_id)
+                                      const uint8_t unit_ids[4])
 {
-    if (!server) { return EGW_RET_CODE(ERR_INVALID_ARG); }
-    if (unit_id < 1 || unit_id > 247) { return EGW_RET_CODE(ERR_INVALID_ARG); }
-    if (unit_is_active(server, unit_id)) { return EGW_RET_CODE(ERR_INVALID_ARG); }
-    unit_set_active(server, unit_id);
+    if (!server || !unit_ids) { return EGW_RET_CODE(ERR_INVALID_ARG); }
+    for (int i = 0; i < 4 && unit_ids[i] != 0; i++) {
+        uint8_t uid = unit_ids[i];
+        if (uid < 1 || uid > 247) { return EGW_RET_CODE(ERR_INVALID_ARG); }
+        server->unit_mask[uid / 8] |= (uint8_t)(1u << (uid % 8));
+    }
     return EGW_OK;
 }
 
@@ -351,15 +359,12 @@ void egw_modbus_server_feed(egw_modbus_server_t *server,
     try_process(server);
 }
 
-uint8_t *egw_modbus_server_reserve(egw_modbus_server_t *server, size_t *avail)
+size_t egw_modbus_server_reserve(egw_modbus_server_t *server, OUT uint8_t **buf)
 {
-    if (!server || server->sending || !avail) {
-        if (avail) { *avail = 0; }
-        return NULL;
-    }
+    if (!server || server->sending || !buf) { return 0; }
 
     size_t free_sz = buf_free(server);
-    if (free_sz == 0) { *avail = 0; return NULL; }
+    if (free_sz == 0) { *buf = NULL; return 0; }
 
     size_t contig;
     if (server->wr < server->rd) {
@@ -368,8 +373,9 @@ uint8_t *egw_modbus_server_reserve(egw_modbus_server_t *server, size_t *avail)
         contig = server->buf_cap - server->wr;
     }
 
-    *avail = (contig < free_sz) ? contig : free_sz;
-    return server->buf + server->wr;
+    size_t avail = (contig < free_sz) ? contig : free_sz;
+    *buf = server->buf + server->wr;
+    return avail;
 }
 
 void egw_modbus_server_commit(egw_modbus_server_t *server, size_t n)
@@ -414,6 +420,9 @@ static void server_handle_frame(egw_modbus_server_t *server,
     size_t  req_pdu_len = 0;
     uint8_t req_unit_id = 0;
 
+    uint16_t req_tid = (server->transport == EGW_MODBUS_TCP)
+        ? (uint16_t)(frame[0] << 8) | frame[1] : 0;
+
     if (egw_modbus_decode(server->transport, frame, frame_len,
                             &req_unit_id, req_pdu,
                             &req_pdu_len) != EGW_OK) {
@@ -430,7 +439,7 @@ static void server_handle_frame(egw_modbus_server_t *server,
     if (egw_modbus_parse_request(req_pdu, req_pdu_len,
                                   &fc, &addr, &count,
                                   &req_data, &req_data_len) != EGW_OK) {
-        send_exception(server, req_unit_id, fc, EGW_MODBUS_EXC_ILLEGAL_DATA_ADDR);
+        send_exception(server, req_unit_id, fc, req_tid, EGW_MODBUS_EXC_ILLEGAL_DATA_ADDR);
         return;
     }
 
@@ -450,14 +459,14 @@ static void server_handle_frame(egw_modbus_server_t *server,
     switch (fc) {
     case 0x01: case 0x02: case 0x03: case 0x04:
         if (!server->read_cb) {
-            send_exception(server, req_unit_id, fc,
+            send_exception(server, req_unit_id, fc, req_tid,
                             EGW_MODBUS_EXC_SLAVE_DEVICE_FAILURE);
             return;
         }
         resp_pdu_len = handle_read_request(server, fc, addr, count,
                                             req_unit_id, resp_pdu);
         if (resp_pdu_len == 0) {
-            send_exception(server, req_unit_id, fc,
+            send_exception(server, req_unit_id, fc, req_tid,
                             EGW_MODBUS_EXC_SLAVE_DEVICE_FAILURE);
             return;
         }
@@ -465,7 +474,7 @@ static void server_handle_frame(egw_modbus_server_t *server,
     case 0x05: case 0x06: case 0x0F: case 0x10:
         if (!handle_write_request(server, fc, addr, count,
                                    req_data, req_unit_id)) {
-            send_exception(server, req_unit_id, fc,
+            send_exception(server, req_unit_id, fc, req_tid,
                             EGW_MODBUS_EXC_SLAVE_DEVICE_FAILURE);
             return;
         }
@@ -474,7 +483,7 @@ static void server_handle_frame(egw_modbus_server_t *server,
         resp_pdu_len = req_pdu_len;
         break;
     default:
-        send_exception(server, req_unit_id, fc,
+        send_exception(server, req_unit_id, fc, req_tid,
                         EGW_MODBUS_EXC_ILLEGAL_FUNCTION);
         return;
     }
@@ -482,6 +491,7 @@ static void server_handle_frame(egw_modbus_server_t *server,
     egw_modbus_encode_params_t enc;
     memset(&enc, 0, sizeof(enc));
     enc.type    = EGW_ENCODE_PDU;
+    enc.tid     = req_tid;
     enc.unit_id = req_unit_id;
     enc.pdu     = resp_pdu;
     enc.pdu_len = resp_pdu_len;

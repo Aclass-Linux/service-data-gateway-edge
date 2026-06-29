@@ -191,14 +191,12 @@ typedef struct {
     uv_poll_t            srv_poll;
 } loopback_ctx_t;
 
-static egw_err_t loopback_srv_read_cb(uint16_t addr, uint16_t qty,
-                                        uint16_t *regs,
-                                        uint8_t unit_id, void *arg)
+static egw_err_t loopback_srv_read_cb(const egw_modbus_srv_read_t *p, void *arg)
 {
-    (void)unit_id; (void)arg;
-    EGW_LOGI("    [server] read_cb: addr=%u qty=%u", addr, qty);
-    for (uint16_t i = 0; i < qty; i++) {
-        regs[i] = 0x000A + addr + i;
+    (void)arg;
+    EGW_LOGI("    [server] read_cb: addr=%u qty=%u", p->address, p->quantity);
+    for (uint16_t i = 0; i < p->quantity; i++) {
+        p->regs_out[i] = 0x000A + p->address + i;
     }
     return EGW_OK;
 }
@@ -233,9 +231,9 @@ static void on_srv_poll(uv_poll_t *p, int status, int events)
     }
 
     /* 零拷贝：transport 直接读入 server 的 protocol 缓冲区 */
-    size_t avail = 0;
-    uint8_t *wp = egw_modbus_server_reserve(lb->server, &avail);
-    if (!wp) {
+    uint8_t *wp = NULL;
+    size_t avail = egw_modbus_server_reserve(lb->server, &wp);
+    if (!wp || avail == 0) {
         return;
     }
 
@@ -274,9 +272,9 @@ static void on_cli_poll(uv_poll_t *p, int status, int events)
     }
 
     /* 零拷贝：transport 直接读入 client 的接收缓冲区 */
-    size_t avail = 0;
-    uint8_t *wp = egw_modbus_client_reserve(lb->cli, &avail);
-    if (!wp) {
+    uint8_t *wp = NULL;
+    size_t avail = egw_modbus_client_reserve(lb->cli, &wp);
+    if (!wp || avail == 0) {
         return;
     }
 

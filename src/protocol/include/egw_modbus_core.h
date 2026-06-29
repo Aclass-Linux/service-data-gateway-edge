@@ -105,9 +105,11 @@ typedef enum {
  * - PDU:         填 unit_id/pdu/pdu_len
  * - EXCEPTION:   填 unit_id/funccode/exc_code
  *
- * buf/cap：非 NULL 时 encode 写入此缓冲区；NULL 时 encode 自行 malloc */
+ * buf/cap：非 NULL 时 encode 写入此缓冲区；NULL 时 encode 自行 malloc
+ * tid：TCP Transaction Identifier，RTU 时忽略 */
 typedef struct {
     egw_modbus_encode_type_t  type;
+    uint16_t                  tid;       /* TCP Tid，RTU 忽略 */
 
     uint8_t        unit_id;
     uint8_t        funccode;
@@ -141,12 +143,13 @@ typedef void (*egw_modbus_done_cb)(const egw_modbus_result_t *result, void *arg)
  *          params->buf 非 NULL 时返回该指针，否则返回 malloc 的指针。调用方 free。 */
 uint8_t* egw_modbus_encode(egw_modbus_transport_t transport,
                             const egw_modbus_encode_params_t *params,
-                            size_t *out_len);
+                            OUT size_t *out_len);
 
 /** @brief 解码完整帧，提取 unit_id + PDU */
 egw_err_t egw_modbus_decode(egw_modbus_transport_t transport,
                              const uint8_t *frame, size_t len,
-                             uint8_t *unit_id_out,
-                             uint8_t *pdu_out, size_t *pdu_len_out);
+                             OUT uint8_t *unit_id_out,
+                             OUT uint8_t *pdu_out,
+                             OUT size_t *pdu_len_out);
 
 #endif /* EGW_MODBUS_CORE_H */

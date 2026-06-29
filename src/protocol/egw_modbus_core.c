@@ -305,7 +305,8 @@ uint8_t* egw_modbus_encode(egw_modbus_transport_t transport,
         buf[*out_len - 1] = (uint8_t)(crc >> 8);
     } else {
         uint16_t mbap_len = (uint16_t)(*out_len - 6);
-        buf[0] = 0; buf[1] = 0;
+        buf[0] = (uint8_t)(params->tid >> 8);
+        buf[1] = (uint8_t)(params->tid & 0xFF);
         buf[2] = 0; buf[3] = 0;
         buf[4] = (uint8_t)(mbap_len >> 8);
         buf[5] = (uint8_t)(mbap_len & 0xFF);

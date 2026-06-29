@@ -5,29 +5,29 @@
 
 /* ── Server（从站） ──────────────────────────────────── */
 
-/** @brief 读寄存器回调（FC01-04）
- *  @param address  寄存器地址
- *  @param quantity 数量
- *  @param regs_out 输出缓冲区（CPU 字节序，引擎回填）
- *  @param unit_id  请求的从站地址
- *  @param arg      用户参数
- *  @return EGW_OK 或错误码（错误时引擎自动发异常响应）
- */
-typedef egw_err_t (*egw_modbus_srv_read_cb)(uint16_t address, uint16_t quantity,
-                                              uint16_t *regs_out,
-                                              uint8_t unit_id, void *arg);
+/** @brief 读回调入参 */
+typedef struct {
+    uint16_t   address;
+    uint16_t   quantity;
+    uint16_t  *regs_out;  /**< 输出缓冲区，CPU 字节序 */
+    uint8_t    unit_id;
+} egw_modbus_srv_read_t;
 
-/** @brief 写寄存器回调（FC05/06/0F/10）
- *  @param address  寄存器地址
- *  @param quantity 数量
- *  @param regs     寄存器值（CPU 字节序）
- *  @param unit_id  请求的从站地址
- *  @param arg      用户参数
- *  @return EGW_OK 或错误码
- */
-typedef egw_err_t (*egw_modbus_srv_write_cb)(uint16_t address, uint16_t quantity,
-                                               const uint16_t *regs,
-                                               uint8_t unit_id, void *arg);
+/** @brief 写回调入参 */
+typedef struct {
+    uint16_t       address;
+    uint16_t       quantity;
+    const uint16_t *regs;  /**< 输入寄存器值，CPU 字节序 */
+    uint8_t        unit_id;
+} egw_modbus_srv_write_t;
+
+/** @brief 读寄存器回调（FC01-04） */
+typedef egw_err_t (*egw_modbus_srv_read_cb)(const egw_modbus_srv_read_t *p,
+                                             void *arg);
+
+/** @brief 写寄存器回调（FC05/06/0F/10） */
+typedef egw_err_t (*egw_modbus_srv_write_cb)(const egw_modbus_srv_write_t *p,
+                                              void *arg);
 
 /** @brief 从站句柄（不透明，内部持有环形接收缓冲区 + unit 位图） */
 typedef struct egw_modbus_server egw_modbus_server_t;
@@ -53,17 +53,16 @@ typedef struct {
  */
 egw_modbus_server_t *egw_modbus_server_create(const egw_modbus_server_params_t *params);
 
-/** @brief 注册一个从站地址
+/** @brief 注册从站地址列表（一次最多 4 个，0 结尾）
  *
- * 激活 unit_id 的监听。收到帧后匹配 unit 位图，
- * 命中则调对应回调，未命中直接丢弃。
+ * 收到帧后匹配 unit 位图，命中则调对应回调，未命中直接丢弃。
  *
- *  @param s       从站句柄
- *  @param unit_id 从站地址（1-247，0=广播）
+ *  @param server   从站句柄
+ *  @param unit_ids 地址数组（如 {1, 2, 5, 0}，0 表示结束）
  *  @return EGW_OK 或错误码
  */
 egw_err_t egw_modbus_server_add_unit(egw_modbus_server_t *server,
-                                      uint8_t unit_id);
+                                      const uint8_t unit_ids[4]);
 
 /** @brief 销毁从站实例 */
 void egw_modbus_server_destroy(egw_modbus_server_t *server);
@@ -85,7 +84,8 @@ void egw_modbus_server_feed(egw_modbus_server_t *server,
  *  @param avail 输出可写字节数
  *  @return 可写指针，失败返回 NULL
  */
-uint8_t *egw_modbus_server_reserve(egw_modbus_server_t *server, size_t *avail);
+size_t egw_modbus_server_reserve(egw_modbus_server_t *server,
+                                  OUT uint8_t **buf);
 
 /** @brief 提交已写入的接收字节
  *
@@ -100,7 +100,7 @@ void egw_modbus_server_commit(egw_modbus_server_t *server, size_t nbytes);
  * @return 帧数据指针（response_sent 前有效）。不改变内部状态。
  */
 const uint8_t *egw_modbus_server_get_response(egw_modbus_server_t *server,
-                                               size_t *len);
+                                                OUT size_t *len);
 
 /** @brief 标记响应已发送
  *

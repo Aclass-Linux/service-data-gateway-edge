@@ -47,14 +47,15 @@ void egw_modbus_client_remove(egw_modbus_client_t *client,
  */
 const uint8_t *egw_modbus_client_request(egw_modbus_client_t *client,
                                           egw_modbus_req_slot_t *slot,
-                                          size_t *len);
+                                          OUT size_t *len);
 
 /* ── 数据接收 ─────────────────────────────────────────── */
 
 void egw_modbus_client_feed(egw_modbus_client_t *client,
                               const uint8_t *data, size_t len);
 
-uint8_t *egw_modbus_client_reserve(egw_modbus_client_t *client, size_t *avail);
+size_t egw_modbus_client_reserve(egw_modbus_client_t *client,
+                                  OUT uint8_t **buf);
 
 void egw_modbus_client_commit(egw_modbus_client_t *client, size_t nbytes);
 

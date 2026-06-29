@@ -92,6 +92,11 @@ typedef struct {
 #define EGW_EXPORT(func, prio) \
     static EGW_CONSTRUCTOR(prio) void func(void)
 
+/* ── 参数方向标记 ──────────────────────────────────── */
+
+/** @brief 标记输出参数（无功能，仅文档） */
+#define OUT
+
 /* ── 日志宏 ────────────────────────────────────────── */
 
 #define EGW_LOG_ERROR  0

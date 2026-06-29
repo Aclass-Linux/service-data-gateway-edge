@@ -64,6 +64,10 @@ struct egw_modbus_client {
     egw_modbus_req_slot_t    *slots;       /* 环形链表入口 */
     egw_modbus_req_slot_t    *current;     /* 当前等待响应的 slot */
 
+    uint16_t                  next_tid;    /* 事务 ID 自增（RTU/TCP 均递增） */
+    uint32_t                  tx_count;    /* 已发送请求数 */
+    uint32_t                  rx_count;    /* 已收到响应数 */
+
     uint8_t                  *recv_buf;
     size_t                    recv_cap;
     size_t                    recv_len;
@@ -115,7 +119,7 @@ egw_modbus_req_slot_t *egw_modbus_client_register(egw_modbus_client_t *client,
 {
     if (!client || !params) { return NULL; }
 
-    egw_modbus_req_slot_t *slot = calloc(1, sizeof(*slot));
+    egw_modbus_req_slot_t *slot = malloc(sizeof(*slot));
     if (!slot) { return NULL; }
 
     slot->buf = egw_modbus_encode(client->transport, params, &slot->len);
@@ -180,6 +184,14 @@ const uint8_t *egw_modbus_client_request(egw_modbus_client_t *client,
     if (!client || !slot || !len) { return NULL; }
     client->current  = slot;
     client->recv_len = 0;
+
+    if (client->transport == EGW_MODBUS_TCP) {
+        slot->buf[0] = (uint8_t)(client->next_tid >> 8);
+        slot->buf[1] = (uint8_t)(client->next_tid & 0xFF);
+    }
+    client->next_tid++;
+    client->tx_count++;
+
     *len = slot->len;
     log_hex("send", slot->buf, slot->len);
     return slot->buf;
@@ -191,6 +203,8 @@ static void client_handle_frame(egw_modbus_client_t *client)
 {
     egw_modbus_req_slot_t *slot = client->current;
     if (!slot) { return; }
+
+    client->rx_count++;
 
     uint8_t pdu[EGW_MODBUS_MAX_PDU];
     size_t pdu_len = 0;
@@ -256,14 +270,11 @@ void egw_modbus_client_feed(egw_modbus_client_t *client,
     }
 }
 
-uint8_t *egw_modbus_client_reserve(egw_modbus_client_t *client, size_t *avail)
+size_t egw_modbus_client_reserve(egw_modbus_client_t *client, OUT uint8_t **buf)
 {
-    if (!client || !client->current || !avail) {
-        if (avail) { *avail = 0; }
-        return NULL;
-    }
-    *avail = client->recv_cap - client->recv_len;
-    return client->recv_buf + client->recv_len;
+    if (!client || !client->current || !buf) { return 0; }
+    *buf = client->recv_buf + client->recv_len;
+    return client->recv_cap - client->recv_len;
 }
 
 void egw_modbus_client_commit(egw_modbus_client_t *client, size_t nbytes)
